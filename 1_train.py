@@ -85,14 +85,26 @@ tokenized_train = train_dataset.map(tokenize_function, batched=True)
 tokenized_dev = dev_dataset.map(tokenize_function, batched=True)
 tokenized_test = test_dataset.map(tokenize_function, batched=True)
 
-tokenized_train.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "labels"]
+# Convert labels to float32 tensors
+tokenized_train = tokenized_train.with_format(
+    "torch", columns=["input_ids", "attention_mask"]
 )
-tokenized_dev.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "labels"]
+tokenized_train = tokenized_train.map(
+    lambda x: {"labels": torch.tensor(x["labels"], dtype=torch.float32)}
 )
-tokenized_test.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "labels"]
+
+tokenized_dev = tokenized_dev.with_format(
+    "torch", columns=["input_ids", "attention_mask"]
+)
+tokenized_dev = tokenized_dev.map(
+    lambda x: {"labels": torch.tensor(x["labels"], dtype=torch.float32)}
+)
+
+tokenized_test = tokenized_test.with_format(
+    "torch", columns=["input_ids", "attention_mask"]
+)
+tokenized_test = tokenized_test.map(
+    lambda x: {"labels": torch.tensor(x["labels"], dtype=torch.float32)}
 )
 
 
