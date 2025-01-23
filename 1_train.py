@@ -39,11 +39,14 @@ def load_tsv(file_path):
         sep="\t",
         header=None,
         names=["labels", "text"],
-        na_values="",
+        na_values=None,
         keep_default_na=False,
     )
     return [
-        {"text": row["text"], "labels": row["labels"].split()}
+        {
+            "text": row["text"],
+            "labels": row["labels"].split() if pd.notna(row["labels"]) else [],
+        }
         for _, row in df.iterrows()
     ]
 
