@@ -70,6 +70,11 @@ train_dataset = Dataset.from_list(train_data)
 dev_dataset = Dataset.from_list(dev_data)
 test_dataset = Dataset.from_list(test_data)
 
+# Convert labels to multi-hot encoding
+train_dataset = train_dataset.map(convert_to_label_ids)
+dev_dataset = dev_dataset.map(convert_to_label_ids)
+test_dataset = test_dataset.map(convert_to_label_ids)
+
 # Rest of your code remains identical
 tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-base")
 
@@ -85,26 +90,14 @@ tokenized_train = train_dataset.map(tokenize_function, batched=True)
 tokenized_dev = dev_dataset.map(tokenize_function, batched=True)
 tokenized_test = test_dataset.map(tokenize_function, batched=True)
 
-# Convert labels to float32 tensors
-tokenized_train = tokenized_train.with_format(
-    "torch", columns=["input_ids", "attention_mask"]
+tokenized_train.set_format(
+    type="torch", columns=["input_ids", "attention_mask", "labels"]
 )
-tokenized_train = tokenized_train.map(
-    lambda x: {"labels": torch.tensor(x["labels"], dtype=torch.float32)}
+tokenized_dev.set_format(
+    type="torch", columns=["input_ids", "attention_mask", "labels"]
 )
-
-tokenized_dev = tokenized_dev.with_format(
-    "torch", columns=["input_ids", "attention_mask"]
-)
-tokenized_dev = tokenized_dev.map(
-    lambda x: {"labels": torch.tensor(x["labels"], dtype=torch.float32)}
-)
-
-tokenized_test = tokenized_test.with_format(
-    "torch", columns=["input_ids", "attention_mask"]
-)
-tokenized_test = tokenized_test.map(
-    lambda x: {"labels": torch.tensor(x["labels"], dtype=torch.float32)}
+tokenized_test.set_format(
+    type="torch", columns=["input_ids", "attention_mask", "labels"]
 )
 
 
