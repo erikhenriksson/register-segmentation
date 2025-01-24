@@ -14,7 +14,6 @@ import torch
 
 # Your existing labels configuration
 labels_structure = {
-    "MT": [],
     "LY": [],
     "SP": ["it"],
     "ID": [],
@@ -164,7 +163,7 @@ trainer = Trainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_dev,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=5)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
 
 # Train
