@@ -11,6 +11,8 @@ from transformers import (
 import numpy as np
 from sklearn.metrics import f1_score, classification_report
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 # Your existing labels configuration
 labels_structure = {
@@ -32,6 +34,34 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
+# Custom Focal Loss for multi-label classification
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.5, gamma=1.0):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+        pt = torch.exp(-bce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
+        return focal_loss.mean()
+
+
+# Custom Trainer with Focal Loss
+class FocalLossTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.focal_loss = FocalLoss(alpha=0.5, gamma=1.0)
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+        loss = self.focal_loss(logits, labels)
+        return (loss, outputs) if return_outputs else loss
+
+
 def load_tsv(file_path):
     df = pd.read_csv(
         file_path,
@@ -50,7 +80,6 @@ def load_tsv(file_path):
     ]
 
 
-# Rest of your functions remain the same
 def convert_to_label_ids(example):
     label_array = np.zeros(len(labels))
     for label in example["labels"]:
@@ -74,7 +103,6 @@ train_dataset = train_dataset.map(convert_to_label_ids)
 dev_dataset = dev_dataset.map(convert_to_label_ids)
 test_dataset = test_dataset.map(convert_to_label_ids)
 
-# Rest of your code remains identical
 tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
 
 
@@ -156,8 +184,8 @@ training_args = TrainingArguments(
     fp16=True,
 )
 
-# Initialize trainer
-trainer = Trainer(
+# Initialize trainer with Focal Loss
+trainer = FocalLossTrainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_train,
