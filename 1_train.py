@@ -80,7 +80,7 @@ tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
 
 def tokenize_function(examples):
     return tokenizer(
-        examples["text"], padding="max_length", truncation=True, max_length=2048
+        examples["text"], padding="max_length", truncation=True, max_length=4096
     )
 
 
@@ -130,6 +130,14 @@ def compute_metrics(eval_pred):
 # Initialize model
 model = AutoModelForSequenceClassification.from_pretrained(
     "answerdotai/ModernBERT-large",
+    problem_type="multi_label_classification",
+    num_labels=len(labels),
+)
+
+model = AutoModelForSequenceClassification.from_pretrained(
+    "openai/whisper-tiny",
+    attn_implementation="flash_attention_2",
+    torch_dtype=torch.float16,
     problem_type="multi_label_classification",
     num_labels=len(labels),
 )
