@@ -134,14 +134,6 @@ model = AutoModelForSequenceClassification.from_pretrained(
     num_labels=len(labels),
 )
 
-model = AutoModelForSequenceClassification.from_pretrained(
-    "openai/whisper-tiny",
-    attn_implementation="flash_attention_2",
-    torch_dtype=torch.float16,
-    problem_type="multi_label_classification",
-    num_labels=len(labels),
-)
-
 # Training arguments
 training_args = TrainingArguments(
     output_dir="./results",
