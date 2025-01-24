@@ -180,7 +180,7 @@ test_results = trainer.evaluate(tokenized_test)
 # Print metrics
 print("\nFinal Test Metrics:")
 for metric, value in test_results.items():
-    if metric != "classification_report":
+    if metric != "classification_report" and isinstance(value, (int, float)):
         print(f"{metric}: {value:.4f}")
 
 print("\nBest model saved to ./best_model")
