@@ -76,7 +76,7 @@ dev_dataset = dev_dataset.map(convert_to_label_ids)
 test_dataset = test_dataset.map(convert_to_label_ids)
 
 # Rest of your code remains identical
-tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-base")
+tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
 
 
 def tokenize_function(examples):
@@ -130,7 +130,7 @@ def compute_metrics(eval_pred):
 
 # Initialize model
 model = AutoModelForSequenceClassification.from_pretrained(
-    "answerdotai/ModernBERT-base",
+    "answerdotai/ModernBERT-large",
     problem_type="multi_label_classification",
     num_labels=len(labels),
 )
@@ -154,6 +154,7 @@ training_args = TrainingArguments(
     warmup_ratio=0.1,
     weight_decay=0.01,
     tf32=True,
+    bf16=True,
 )
 
 # Initialize trainer
