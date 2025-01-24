@@ -108,7 +108,7 @@ tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
 
 def tokenize_function(examples):
     return tokenizer(
-        examples["text"], padding="max_length", truncation=True, max_length=4096
+        examples["text"], padding="max_length", truncation=True, max_length=2048
     )
 
 
