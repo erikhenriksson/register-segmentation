@@ -154,6 +154,7 @@ training_args = TrainingArguments(
     warmup_ratio=0.1,
     weight_decay=0.01,
     tf32=True,
+    fp16=True,
 )
 
 # Initialize trainer
