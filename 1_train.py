@@ -54,7 +54,9 @@ class FocalLossTrainer(Trainer):
         super().__init__(*args, **kwargs)
         self.focal_loss = FocalLoss(alpha=0.5, gamma=1.0)
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         labels = inputs.pop("labels")
         outputs = model(**inputs)
         logits = outputs.logits
