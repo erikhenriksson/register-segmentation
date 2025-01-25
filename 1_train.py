@@ -189,7 +189,7 @@ def tokenize_function(examples):
 # Tokenize and format datasets
 tokenized_train = train_dataset.map(tokenize_function, batched=True)
 tokenized_dev = dev_dataset.map(tokenize_function, batched=True)
-tokenized_test = test_dataset.map(tokenize_function, batched=True)
+tokenized_test = test_dataset.map(tokenize_function, batched=False)
 
 tokenized_train.set_format(
     type="torch", columns=["input_ids", "attention_mask", "labels"]
@@ -260,7 +260,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     per_device_eval_batch_size=32,
-    num_train_epochs=0.1,
+    num_train_epochs=0.05,
     load_best_model_at_end=True,
     metric_for_best_model="micro_f1",
     greater_is_better=True,
@@ -331,6 +331,13 @@ with open(
         test_pred_probs, test_true_labels, test_texts, test_labels
     ):
         json.dump(
-            {"pred_probs": probs, "labels": labels, "text": text, "labels_str": labels_str}, f, ensure_ascii=False
+            {
+                "pred_probs": probs,
+                "labels": labels,
+                "text": text,
+                "labels_str": labels_str,
+            },
+            f,
+            ensure_ascii=False,
         )
         f.write("\n")
