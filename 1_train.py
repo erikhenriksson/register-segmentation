@@ -260,7 +260,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     per_device_eval_batch_size=32,
-    num_train_epochs=1,
+    num_train_epochs=30,
     load_best_model_at_end=True,
     metric_for_best_model="micro_f1",
     greater_is_better=True,
@@ -284,7 +284,7 @@ trainer = FocalLossTrainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_dev,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=5)],
 )
 
 # Train
