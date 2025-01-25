@@ -200,9 +200,29 @@ tokenized_test.set_format(
 )
 
 
+def optimize_threshold(predictions, labels_ids):
+    best_f1 = 0
+    best_threshold = 0.5
+    thresholds = np.arange(0.3, 0.75, 0.05)
+
+    for threshold in thresholds:
+        predictions_binary = (
+            (torch.sigmoid(torch.tensor(predictions)) > threshold).numpy().astype(int)
+        )
+        f1 = f1_score(labels_ids, predictions_binary, average="micro")
+        if f1 > best_f1:
+            best_f1 = f1
+            best_threshold = threshold
+
+    return best_threshold
+
+
 def compute_metrics(eval_pred):
     predictions, labels_ids = eval_pred
-    predictions = (predictions > 0).astype(int)
+    best_threshold = optimize_threshold(predictions, labels_ids)
+    predictions = (
+        (torch.sigmoid(torch.tensor(predictions)) > best_threshold).numpy().astype(int)
+    )
 
     micro_f1 = f1_score(labels_ids, predictions, average="micro")
     macro_f1 = f1_score(labels_ids, predictions, average="macro")
@@ -212,6 +232,7 @@ def compute_metrics(eval_pred):
         labels_ids, predictions, target_names=labels, zero_division=0, output_dict=True
     )
 
+    print(f"\nOptimal threshold: {best_threshold:.3f}")
     print("\nClassification Report:")
     print(
         classification_report(
@@ -223,6 +244,7 @@ def compute_metrics(eval_pred):
         "micro_f1": micro_f1,
         "macro_f1": macro_f1,
         "weighted_f1": weighted_f1,
+        "optimal_threshold": best_threshold,
         "classification_report": report,
     }
 
