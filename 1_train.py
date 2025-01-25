@@ -318,14 +318,19 @@ test_pred_probs = (
 )
 test_true_labels = test_pred_output.label_ids.tolist()
 test_texts = [example["text"] for example in test_data]  # Get original texts
+test_labels = [
+    " ".join(example["labels"]) for example in test_data
+]  # Get original labels
 
 
 # Save as JSON
 with open(
     f"./results/{model_type}/{dataset}/test_predictions.jsonl", "w", encoding="utf-8"
 ) as f:
-    for probs, labels, text in zip(test_pred_probs, test_true_labels, test_texts):
+    for probs, labels, text, labels_str in zip(
+        test_pred_probs, test_true_labels, test_texts, test_labels
+    ):
         json.dump(
-            {"pred_probs": probs, "labels": labels, "text": text}, f, ensure_ascii=False
+            {"pred_probs": probs, "labels": labels, "text": text, "labels_str": labels_str}, f, ensure_ascii=False
         )
         f.write("\n")
