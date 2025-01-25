@@ -168,7 +168,7 @@ else:
         model_name,
         problem_type="multi_label_classification",
         num_labels=num_labels,
-        torch_dtype=torch.float16 if model_type == "modernbert" else torch.bfloat16,
+        # torch_dtype=torch.float16 if model_type == "modernbert" else torch.bfloat16,
     )
 
 # Load tokenizer
