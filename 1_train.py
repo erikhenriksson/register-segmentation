@@ -105,7 +105,7 @@ train_dataset = train_dataset.map(convert_to_label_ids)
 dev_dataset = dev_dataset.map(convert_to_label_ids)
 test_dataset = test_dataset.map(convert_to_label_ids)
 
-tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
+tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-m3-retromae")
 
 
 def tokenize_function(examples):
@@ -179,7 +179,7 @@ training_args = TrainingArguments(
     save_steps=500,
     save_total_limit=1,
     max_grad_norm=1.0,
-    learning_rate=1e-5,
+    learning_rate=3e-5,
     warmup_ratio=0.1,
     weight_decay=0.01,
     tf32=True,
@@ -187,7 +187,7 @@ training_args = TrainingArguments(
 )
 
 # Initialize trainer with Focal Loss
-trainer = FocalLossTrainer(
+trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_train,
