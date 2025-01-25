@@ -1,24 +1,22 @@
-import os
+import json
 import sys
-import pandas as pd
-from datasets import Dataset
-from transformers import (
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    TrainingArguments,
-    Trainer,
-    EarlyStoppingCallback,
-)
+
 import numpy as np
-from sklearn.metrics import f1_score, classification_report
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from datasets import Dataset
+from sklearn.metrics import classification_report, f1_score
 from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
     DebertaV2Config,
     DebertaV2ForSequenceClassification,
     DebertaV2Tokenizer,
+    EarlyStoppingCallback,
+    Trainer,
+    TrainingArguments,
 )
 
 models = {
@@ -28,8 +26,12 @@ models = {
 }
 
 model_type = sys.argv[1] if len(sys.argv) > 1 else ""
+dataset = sys.argv[2] if len(sys.argv) > 2 else ""
 if model_type not in models:
     print(f"Invalid model type: {model_type}")
+    sys.exit(1)
+if not dataset:
+    print(f"Invalid dataset: {dataset}")
     sys.exit(1)
 
 labels_structure = {
@@ -144,9 +146,9 @@ def convert_to_label_ids(example):
 
 
 # Load datasets from TSV
-train_data = load_tsv("en_core/train.tsv")
-dev_data = load_tsv("en_core/dev.tsv")
-test_data = load_tsv("en_core/test.tsv")
+train_data = load_tsv(f"{dataset}/train.tsv")
+dev_data = load_tsv(f"{dataset}/dev.tsv")
+test_data = load_tsv(f"{dataset}/test.tsv")
 
 # Convert to HuggingFace datasets
 train_dataset = Dataset.from_list(train_data)
@@ -258,7 +260,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     per_device_eval_batch_size=32,
-    num_train_epochs=30,
+    num_train_epochs=1,
     load_best_model_at_end=True,
     metric_for_best_model="micro_f1",
     greater_is_better=True,
@@ -296,6 +298,11 @@ tokenizer.save_pretrained("./best_model")
 print("\nFinal Test Set Evaluation:")
 test_results = trainer.evaluate(tokenized_test)
 
+# Get optimal threshold from test results
+optimal_threshold = test_results["eval_optimal_threshold"]
+
+print(f"\nOptimal test threshold: {optimal_threshold:.3f}")
+
 # Print metrics
 print("\nFinal Test Metrics:")
 for metric, value in test_results.items():
@@ -303,3 +310,14 @@ for metric, value in test_results.items():
         print(f"{metric}: {value:.4f}")
 
 print("\nBest model saved to ./best_model")
+
+
+test_pred_output = trainer.predict(tokenized_test)
+test_pred_probs = (
+    torch.sigmoid(torch.tensor(test_pred_output.predictions)).numpy().tolist()
+)
+test_true_labels = test_pred_output.label_ids.tolist()
+
+# Save as JSON
+with open(f"{dataset}/test_predictions.json", "w") as f:
+    json.dump({"pred_probs": test_pred_probs, "labels": test_true_labels}, f)
