@@ -14,7 +14,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers import DebertaV2Config, DebertaV2ForSequenceClassification
+from transformers import (
+    DebertaV2Config,
+    DebertaV2ForSequenceClassification,
+    DebertaV2Tokenizer,
+)
 
 models = {
     "deberta": "microsoft/deberta-v3-large",
@@ -147,7 +151,10 @@ else:
     )
 
 # Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+if model_type == "deberta":
+    tokenizer = DebertaV2Tokenizer.from_pretrained(model_name)
+else:
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 
 def tokenize_function(examples):
