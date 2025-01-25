@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 from datasets import Dataset
 from transformers import (
@@ -26,9 +27,11 @@ models = {
     "bge-m3": "BAAI/bge-m3-retromae",
 }
 
-model_type = "deberta"
+model_type = sys.argv[1] if len(sys.argv) > 1 else ""
+if model_type not in models:
+    print(f"Invalid model type: {model_type}")
+    sys.exit(1)
 
-# Your existing labels configuration
 labels_structure = {
     "LY": [],
     "SP": ["it"],
@@ -76,10 +79,25 @@ class FocalLoss(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
 
+    """
     def forward(self, inputs, targets):
         bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
         pt = torch.exp(-bce_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
+        return focal_loss.mean()
+    """
+
+    def forward(self, pred, target):
+        sigmoid_pred = torch.sigmoid(pred)
+        bce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+        pt = torch.where(target == 1, sigmoid_pred, 1 - sigmoid_pred)
+        focal_weight = torch.pow(1 - pt, self.gamma)
+
+        if self.alpha != 1:
+            alpha_weight = torch.where(target == 1, self.alpha, 1)
+            focal_weight = focal_weight * alpha_weight
+
+        focal_loss = focal_weight * bce_loss
         return focal_loss.mean()
 
 
@@ -235,7 +253,7 @@ training_args = TrainingArguments(
 )
 
 # Initialize trainer with Focal Loss
-trainer = Trainer(
+trainer = FocalLossTrainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_train,
