@@ -19,6 +19,8 @@ from transformers import (
     TrainingArguments,
 )
 
+from torch.utils.data import DataLoader
+
 models = {
     "deberta": "microsoft/deberta-v3-large",
     "modernbert": "answerdotai/ModernBERT-large",
@@ -173,6 +175,8 @@ else:
         # torch_dtype=torch.float16 if model_type == "modernbert" else torch.bfloat16,
     )
 
+model = model.to("cuda")
+
 # Load tokenizer
 if model_type == "deberta":
     tokenizer = DebertaV2Tokenizer.from_pretrained(model_name)
@@ -189,7 +193,7 @@ def tokenize_function(examples):
 # Tokenize and format datasets
 tokenized_train = train_dataset.map(tokenize_function, batched=True)
 tokenized_dev = dev_dataset.map(tokenize_function, batched=True)
-tokenized_test = test_dataset.map(tokenize_function, batched=False)
+tokenized_test = test_dataset.map(tokenize_function, batched=True)
 
 tokenized_train.set_format(
     type="torch", columns=["input_ids", "attention_mask", "labels"]
@@ -312,11 +316,20 @@ for metric, value in test_results.items():
 print("\nBest model saved to ./best_model")
 
 
-test_pred_output = trainer.predict(tokenized_test)
-test_pred_probs = (
-    torch.sigmoid(torch.tensor(test_pred_output.predictions)).numpy().tolist()
-)
-test_true_labels = test_pred_output.label_ids.tolist()
+test_dataloader = DataLoader(tokenized_test, batch_size=32, shuffle=False)
+all_predictions = []
+all_labels = []
+
+model.eval()
+with torch.no_grad():
+    for batch in test_dataloader:
+        outputs = model(**{k: v.to(model.device) for k, v in batch.items()})
+        all_predictions.extend(torch.sigmoid(outputs.logits).cpu().numpy().tolist())
+        all_labels.extend(batch["labels"].cpu().numpy().tolist())
+
+test_pred_probs = all_predictions
+test_true_labels = all_labels
+
 test_texts = [example["text"] for example in test_data]  # Get original texts
 test_labels = [
     " ".join(example["labels"]) for example in test_data
