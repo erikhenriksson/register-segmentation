@@ -168,6 +168,7 @@ else:
         model_name,
         problem_type="multi_label_classification",
         num_labels=num_labels,
+        torch_dtype=torch.float16 if model_type == "modernbert" else torch.bfloat16,
     )
 
 # Load tokenizer
@@ -235,15 +236,15 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     per_device_eval_batch_size=32,
-    num_train_epochs=10,
+    num_train_epochs=30,
     load_best_model_at_end=True,
-    metric_for_best_model="micro_f1",
-    greater_is_better=True,
+    metric_for_best_model="eval_loss",
+    greater_is_better=False,
     save_strategy="steps",
     save_steps=500,
     save_total_limit=1,
     max_grad_norm=1.0,
-    learning_rate=3e-5,
+    learning_rate=5e-5,
     warmup_ratio=0.05,
     weight_decay=0.01,
     tf32=True,
