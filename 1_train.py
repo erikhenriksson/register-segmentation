@@ -147,7 +147,7 @@ else:
     )
 
 # Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
 
 
 def tokenize_function(examples):
