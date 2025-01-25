@@ -253,7 +253,7 @@ def compute_metrics(eval_pred):
 
 # Training arguments
 training_args = TrainingArguments(
-    output_dir="./results",
+    output_dir=f"./results/{model_type}/{dataset}",
     eval_strategy="steps",
     eval_steps=500,
     # per_device_train_batch_size=8,
@@ -319,5 +319,5 @@ test_pred_probs = (
 test_true_labels = test_pred_output.label_ids.tolist()
 
 # Save as JSON
-with open(f"{dataset}/test_predictions.json", "w") as f:
+with open(f"./results/{model_type}/{dataset}/test_predictions.json", "w") as f:
     json.dump({"pred_probs": test_pred_probs, "labels": test_true_labels}, f)
