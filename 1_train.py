@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers import DebertaV3Config, DebertaV3ForSequenceClassification
+from transformers import DebertaV2Config, DebertaV3ForSequenceClassification
 
 models = {
     "deberta": "microsoft/deberta-v3-large",
@@ -45,7 +45,7 @@ torch.backends.cudnn.allow_tf32 = True
 
 
 def create_extended_deberta_multilabel(model_name, num_labels, max_length=2048):
-    config = DebertaV3Config.from_pretrained(model_name)
+    config = DebertaV2Config.from_pretrained(model_name)
     config.update(
         {
             "output_hidden_states": False,
