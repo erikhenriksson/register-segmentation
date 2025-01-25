@@ -14,6 +14,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from transformers import DebertaV3Config, DebertaV3ForSequenceClassification
+
+models = {
+    "deberta": "microsoft/deberta-v3-large",
+    "modernbert": "answerdotai/ModernBERT-large",
+    "bge-m3": "BAAI/bge-m3-retromae",
+}
+
+model_type = "deberta"
+
 # Your existing labels configuration
 labels_structure = {
     "LY": [],
@@ -32,6 +42,25 @@ labels = [k for k in labels_structure.keys()] + [
 # Enable TF32
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+
+def create_extended_deberta_multilabel(model_name, num_labels, max_length=2048):
+    config = DebertaV3Config.from_pretrained(model_name)
+    config.update(
+        {
+            "output_hidden_states": False,
+            "max_position_embeddings": max_length,
+            "attention_probs_dropout_prob": 0.0,
+            "hidden_dropout_prob": 0.0,
+            "num_labels": num_labels,
+            "problem_type": "multi_label_classification",
+        }
+    )
+
+    model = DebertaV3ForSequenceClassification.from_pretrained(
+        model_name, config=config
+    )
+    return model
 
 
 # Custom Focal Loss for multi-label classification
@@ -105,7 +134,20 @@ train_dataset = train_dataset.map(convert_to_label_ids)
 dev_dataset = dev_dataset.map(convert_to_label_ids)
 test_dataset = test_dataset.map(convert_to_label_ids)
 
-tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-m3-retromae")
+# Load model
+num_labels = len(labels)
+model_name = models[model_type]
+if model_type == "deberta":
+    model = create_extended_deberta_multilabel(model_name, num_labels)
+else:
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        problem_type="multi_label_classification",
+        num_labels=num_labels,
+    )
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 
 def tokenize_function(examples):
@@ -156,13 +198,6 @@ def compute_metrics(eval_pred):
         "classification_report": report,
     }
 
-
-# Initialize model
-model = AutoModelForSequenceClassification.from_pretrained(
-    "answerdotai/ModernBERT-large",
-    problem_type="multi_label_classification",
-    num_labels=len(labels),
-)
 
 # Training arguments
 training_args = TrainingArguments(
