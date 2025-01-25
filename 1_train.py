@@ -260,7 +260,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     per_device_eval_batch_size=32,
-    num_train_epochs=30,
+    num_train_epochs=0.1,
     load_best_model_at_end=True,
     metric_for_best_model="micro_f1",
     greater_is_better=True,
@@ -317,7 +317,15 @@ test_pred_probs = (
     torch.sigmoid(torch.tensor(test_pred_output.predictions)).numpy().tolist()
 )
 test_true_labels = test_pred_output.label_ids.tolist()
+test_texts = [example["text"] for example in test_data]  # Get original texts
+
 
 # Save as JSON
-with open(f"./results/{model_type}/{dataset}/test_predictions.json", "w") as f:
-    json.dump({"pred_probs": test_pred_probs, "labels": test_true_labels}, f)
+with open(
+    f"./results/{model_type}/{dataset}/test_predictions.jsonl", "w", encoding="utf-8"
+) as f:
+    for probs, labels, text in zip(test_pred_probs, test_true_labels, test_texts):
+        json.dump(
+            {"pred_probs": probs, "labels": labels, "text": text}, f, ensure_ascii=False
+        )
+        f.write("\n")
