@@ -58,6 +58,8 @@ def create_extended_deberta_multilabel(model_name, num_labels, max_length=2048):
             "hidden_dropout_prob": 0.0,
             "num_labels": num_labels,
             "problem_type": "multi_label_classification",
+            # Add torch dtype
+            "dtype": torch.bfloat16,
         }
     )
 
@@ -224,11 +226,12 @@ training_args = TrainingArguments(
     save_total_limit=1,
     max_grad_norm=1.0,
     learning_rate=3e-5,
-    warmup_ratio=0.1,
+    warmup_ratio=0.05,
     weight_decay=0.01,
     tf32=True,
-    # fp16=True,
-    bf16=True,
+    group_by_length=True,
+    bf16=True if model_type != "modernbert" else False,
+    fp16=True if model_type == "modernbert" else False,
 )
 
 # Initialize trainer with Focal Loss
