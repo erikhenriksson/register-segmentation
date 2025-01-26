@@ -49,6 +49,14 @@ class TextSegmenter:
             ]  # CLS token
             return probs, embedding
 
+    def truncate_text(self, text):
+        tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
+            "input_ids"
+        ][0]
+        if len(tokens) > 2048:
+            text = self.tokenizer.decode(tokens[:2048], skip_special_tokens=True)
+        return text
+
     def split_to_sentences(self, text):
         return sent_tokenize(text)
 
@@ -120,8 +128,9 @@ def main(model_path, dataset_path):
 
     with open("segmentations.jsonl", "w", encoding="utf-8") as f:
         for i, row in combined_df.iterrows():
-            full_probs, full_embedding = segmenter.get_probs_and_embedding(row["text"])
-            segments = segmenter.segment_recursively(row["text"])
+            text = segmenter.truncate_text(row["text"])
+            full_probs, full_embedding = segmenter.get_probs_and_embedding(text)
+            segments = segmenter.segment_recursively(text)
             result = {
                 "id": i,
                 "label": row["label"],
