@@ -102,9 +102,9 @@ def print_result(item, threshold=0.35):
         print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
 
 
-def main(args):
+def main(model_path, dataset_path):
     all_data = []
-    for tsv_file in glob.glob("en_core_cleaned/*.tsv"):
+    for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
         df = pd.read_csv(
             tsv_file,
             sep="\t",
@@ -116,7 +116,7 @@ def main(args):
         all_data.append(df)
     combined_df = pd.concat(all_data, ignore_index=True)
 
-    segmenter = TextSegmenter(model_path=args[0])
+    segmenter = TextSegmenter(model_path=model_path)
 
     with open("segmentations.jsonl", "w", encoding="utf-8") as f:
         for i, row in combined_df.iterrows():
@@ -137,4 +137,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    if len(sys.argv) != 3:
+        print("Usage: <model_path> <dataset_path>")
+        sys.exit(1)
+    main(sys.argv[1], sys.argv[2])
