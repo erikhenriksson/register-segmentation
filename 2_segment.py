@@ -141,7 +141,7 @@ def main(model_path, dataset_path):
                     for text, probs, emb in segments
                 ],
             }
-            print_result(result)
+            # print_result(result)
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
 
 
