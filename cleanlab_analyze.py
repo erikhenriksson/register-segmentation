@@ -22,7 +22,7 @@ def load_and_process_jsonl(file_path):
     return index_labels, np.array(pred_probs), texts, labels_str
 
 
-def analyze_and_filter_data(file_path, output_path, percentile=5):
+def analyze_and_filter_data(file_path, output_path, percentile=10):
     labels, pred_probs, texts, labels_str = load_and_process_jsonl(file_path)
 
     lab = Datalab(
