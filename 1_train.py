@@ -36,6 +36,8 @@ if not dataset:
     print(f"Invalid dataset: {dataset}")
     sys.exit(1)
 
+working_dir = f"./results/{model_type}/{dataset}"
+
 labels_structure = {
     "LY": [],
     "SP": ["it"],
@@ -257,7 +259,7 @@ def compute_metrics(eval_pred):
 
 # Training arguments
 training_args = TrainingArguments(
-    output_dir=f"./results/{model_type}/{dataset}",
+    output_dir=working_dir,
     eval_strategy="steps",
     eval_steps=500,
     # per_device_train_batch_size=8,
@@ -295,8 +297,8 @@ trainer = FocalLossTrainer(
 trainer.train()
 
 # Save model and tokenizer
-trainer.save_model("./best_model")
-tokenizer.save_pretrained("./best_model")
+trainer.save_model(f"{working_dir}/best_model")
+tokenizer.save_pretrained(f"{working_dir}/best_model")
 
 # Evaluate on test set
 print("\nFinal Test Set Evaluation:")
@@ -313,7 +315,7 @@ for metric, value in test_results.items():
     if metric != "classification_report" and isinstance(value, (int, float)):
         print(f"{metric}: {value:.4f}")
 
-print("\nBest model saved to ./best_model")
+print(f"\nBest model saved to {working_dir}/best_model")
 
 
 test_dataloader = DataLoader(tokenized_test, batch_size=32, shuffle=False)
@@ -337,9 +339,7 @@ test_labels = [
 
 
 # Save as JSON
-with open(
-    f"./results/{model_type}/{dataset}/test_predictions.jsonl", "w", encoding="utf-8"
-) as f:
+with open(f"{working_dir}/test_predictions.jsonl", "w", encoding="utf-8") as f:
     for probs, labels, text, labels_str in zip(
         test_pred_probs, test_true_labels, test_texts, test_labels
     ):
