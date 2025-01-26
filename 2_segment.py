@@ -65,7 +65,7 @@ class TextSegmenter:
 
     def segment_recursively(self, text):
         sentences = self.split_to_sentences(text)
-        if len(sentences) < 2 or len(text) < 600:
+        if len(sentences) < 2 or len(text) < 1000:
             probs, embedding = self.get_probs_and_embedding(text)
             return [(text, probs, embedding)]
 
@@ -77,7 +77,7 @@ class TextSegmenter:
             segment1 = " ".join(sentences[:split_idx])
             segment2 = " ".join(sentences[split_idx:])
 
-            if len(segment1) >= 300 and len(segment2) >= 300:
+            if len(segment1) >= 500 and len(segment2) >= 500:
                 probs1, _ = self.get_probs_and_embedding(segment1)
                 probs2, _ = self.get_probs_and_embedding(segment2)
                 gain = self.compute_gain(parent_probs, [probs1, probs2])
