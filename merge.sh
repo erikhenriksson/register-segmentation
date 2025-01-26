@@ -1,0 +1,1 @@
+cat results/modernbert/en_cleanlab/_*/test_predictions.jsonl > results/modernbert/en_cleanlab/merged/test_predictions.jsonl
