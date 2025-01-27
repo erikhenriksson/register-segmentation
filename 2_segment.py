@@ -8,19 +8,7 @@ import torch
 from nltk.tokenize import sent_tokenize
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-labels_structure = {
-    "LY": [],
-    "SP": ["it"],
-    "ID": [],
-    "NA": ["ne", "sr", "nb"],
-    "HI": ["re"],
-    "IN": ["en", "ra", "dtp", "fi", "lt"],
-    "OP": ["rv", "ob", "rs", "av"],
-    "IP": ["ds", "ed"],
-}
-labels = [k for k in labels_structure.keys()] + [
-    item for row in labels_structure.values() for item in row
-]
+from labels import labels
 
 
 class TextSegmenter:
@@ -110,6 +98,18 @@ def print_result(item, threshold=0.35):
         print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
 
 
+def get_last_processed_id():
+    try:
+        with open("segmentations.jsonl", "r", encoding="utf-8") as f:
+            last_line = None
+            for line in f:
+                last_line = line
+            if last_line:
+                return json.loads(last_line)["id"]
+    except FileNotFoundError:
+        pass
+    return -1
+
 def main(model_path, dataset_path):
     all_data = []
     for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
@@ -124,10 +124,14 @@ def main(model_path, dataset_path):
         all_data.append(df)
     combined_df = pd.concat(all_data, ignore_index=True)
 
+    last_id = get_last_processed_id()
     segmenter = TextSegmenter(model_path=model_path)
 
-    with open("segmentations.jsonl", "w", encoding="utf-8") as f:
+    with open("segmentations.jsonl", "a", encoding="utf-8") as f:
         for i, row in combined_df.iterrows():
+            if i <= last_id:
+                continue
+                
             text = segmenter.truncate_text(row["text"])
             full_probs, full_embedding = segmenter.get_probs_and_embedding(text)
             segments = segmenter.segment_recursively(text)
@@ -141,12 +145,4 @@ def main(model_path, dataset_path):
                     for text, probs, emb in segments
                 ],
             }
-            # print_result(result)
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: <model_path> <dataset_path>")
-        sys.exit(1)
-    main(sys.argv[1], sys.argv[2])

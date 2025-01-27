@@ -20,6 +20,7 @@ from transformers import (
 )
 
 from torch.utils.data import DataLoader
+from labels import labels, convert_to_label_ids
 
 models = {
     "deberta": "microsoft/deberta-v3-large",
@@ -37,20 +38,6 @@ if not dataset:
     sys.exit(1)
 
 working_dir = f"./results/{model_type}/{dataset}"
-
-labels_structure = {
-    "LY": [],
-    "SP": ["it"],
-    "ID": [],
-    "NA": ["ne", "sr", "nb"],
-    "HI": ["re"],
-    "IN": ["en", "ra", "dtp", "fi", "lt"],
-    "OP": ["rv", "ob", "rs", "av"],
-    "IP": ["ds", "ed"],
-}
-labels = [k for k in labels_structure.keys()] + [
-    item for row in labels_structure.values() for item in row
-]
 
 # Enable TF32
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -139,14 +126,6 @@ def load_tsv(file_path):
         }
         for _, row in df.iterrows()
     ]
-
-
-def convert_to_label_ids(example):
-    label_array = np.zeros(len(labels))
-    for label in example["labels"]:
-        if label in labels:
-            label_array[labels.index(label)] = 1
-    return {"labels": label_array}
 
 
 # Load datasets from TSV
