@@ -110,6 +110,7 @@ def get_last_processed_id():
         pass
     return -1
 
+
 def main(model_path, dataset_path):
     all_data = []
     for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
@@ -127,11 +128,13 @@ def main(model_path, dataset_path):
     last_id = get_last_processed_id()
     segmenter = TextSegmenter(model_path=model_path)
 
+    print("last_id:", last_id)
+
     with open("segmentations.jsonl", "a", encoding="utf-8") as f:
         for i, row in combined_df.iterrows():
             if i <= last_id:
                 continue
-                
+
             text = segmenter.truncate_text(row["text"])
             full_probs, full_embedding = segmenter.get_probs_and_embedding(text)
             segments = segmenter.segment_recursively(text)
