@@ -149,3 +149,7 @@ def main(model_path, dataset_path):
                 ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
+
+
+if __name__ == "__main__":
+    main()
