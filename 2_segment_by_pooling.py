@@ -13,7 +13,9 @@ from labels import labels
 
 class TextSegmenter:
     def __init__(self, model_path):
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_path, torch_dtype=torch.float16
+        )
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.model = self.model.to("cuda")
         self.model.eval()
@@ -264,7 +266,7 @@ def main(model_path, dataset_path, output_path):
                 final_segments.append(
                     {
                         "text": segment["text"],
-                        "probs": [round(4, x) for x in segment["probs"]],
+                        "probs": [round(4, float(x)) for x in segment["probs"]],
                         "embedding": seg_embedding,
                     }
                 )
@@ -272,7 +274,7 @@ def main(model_path, dataset_path, output_path):
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": ([round(4, x) for x in full_probs.tolist()],),
+                "text_probs": ([round(4, float(x)) for x in full_probs.tolist()],),
                 "text_embedding": text_embedding,
                 "segments": final_segments,
             }
