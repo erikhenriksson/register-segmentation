@@ -74,7 +74,7 @@ class TextSegmenter:
         ) / attention_mask.sum()
         full_text_embedding = full_text_embedding.cpu().numpy().tolist()
 
-        if len(text) < 1000:
+        if len(text) < 500:
             return [(text, parent_probs, full_text_embedding)]
 
         sentences = sent_tokenize(text)
@@ -91,7 +91,7 @@ class TextSegmenter:
             segment1 = " ".join(sentences[:split_idx])
             segment2 = " ".join(sentences[split_idx:])
 
-            if len(segment1) >= 500 and len(segment2) >= 500:
+            if len(segment1) >= 250 and len(segment2) >= 250:
                 seg1_end = next(
                     i
                     for i, (_, end) in enumerate(offset_mapping)
