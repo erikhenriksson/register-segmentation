@@ -17,6 +17,7 @@ from transformers import (
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
+    AutoConfig,
 )
 
 from torch.utils.data import DataLoader
@@ -149,6 +150,9 @@ model_name = models[model_type]
 if model_type == "deberta":
     model = create_extended_deberta_multilabel(model_name, num_labels)
 else:
+    config = AutoConfig.from_pretrained(model_name)
+    print(config)
+    exit()
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
         problem_type="multi_label_classification",
