@@ -41,6 +41,14 @@ class TextSegmenter:
 
             return hidden_states, attention_mask, probs
 
+    def compute_gain(self, parent_probs, segment_probs):
+        """
+        Compute the gain from splitting a segment.
+        Takes parent segment probabilities and a list of child segment probabilities.
+        Returns a score indicating if the split is beneficial.
+        """
+        return (max(segment_probs[0]) + max(segment_probs[1])) / 2 - max(parent_probs)
+
     def truncate_text(self, text):
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
             "input_ids"
