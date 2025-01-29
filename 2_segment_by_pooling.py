@@ -246,14 +246,18 @@ def main(model_path, dataset_path, output_path):
                 "label": row["label"],
                 "text_probs": [round(x, 4) for x in full_probs.tolist()],
                 "text_embedding": text_embedding,
-                "segments": [
-                    {
-                        "text": text,
-                        "probs": [round(x, 4) for x in probs.tolist()],
-                        "embedding": emb,
-                    }
-                    for text, probs, emb in combined_segments
-                ],
+                "segments": (
+                    [
+                        {
+                            "text": text,
+                            "probs": [round(x, 4) for x in probs.tolist()],
+                            "embedding": emb,
+                        }
+                        for text, probs, emb in combined_segments
+                    ]
+                    if len(combined_segments) > 1
+                    else []
+                ),
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
             # print_result(result)
