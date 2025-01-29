@@ -186,7 +186,8 @@ def print_result(item, threshold=0.35):
 
     for j, seg in enumerate(item["segments"], 1):
         pred_labels = [labels[i] for i, p in enumerate(seg["probs"]) if p > threshold]
-        print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text']}...")
+        print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text']}")
+        print("---")
 
 
 def get_last_processed_id(output_path):
@@ -255,7 +256,7 @@ def main(model_path, dataset_path, output_path):
                 ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-            print_result(result)
+            # print_result(result)
             f.flush()
 
 
