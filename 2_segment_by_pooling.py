@@ -150,12 +150,16 @@ def print_result(item, threshold=0.35):
 
     # Convert back to numpy array if it's a list
     text_probs = np.array(item["text_probs"])
-    text_pred_labels = [labels[i] for i, p in enumerate(text_probs) if p > threshold]
+    text_pred_labels = [
+        labels[i] for i, p in enumerate(text_probs.flatten()) if p > threshold
+    ]
     print(f"Pred label: {', '.join(text_pred_labels)}")
 
     for j, seg in enumerate(item["segments"], 1):
         seg_probs = np.array(seg["probs"])
-        pred_labels = [labels[i] for i, p in enumerate(seg_probs) if p > threshold]
+        pred_labels = [
+            labels[i] for i, p in enumerate(seg_probs.flatten()) if p > threshold
+        ]
         print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
 
 
