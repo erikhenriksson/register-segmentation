@@ -20,6 +20,27 @@ class TextSegmenter:
         self.model.eval()
         self.min_tokens = 128  # Set minimum token length
 
+    def safe_mean_pooling(self, hidden_states, attention_mask):
+        """Safe mean pooling that handles edge cases to prevent infinite values"""
+        # Add small epsilon to prevent division by zero
+        epsilon = 1e-10
+        attention_mask = attention_mask.unsqueeze(-1)
+        mask_sum = attention_mask.sum(dim=0) + epsilon
+
+        # Ensure the mask sum is at least epsilon to prevent explosion
+        mask_sum = torch.maximum(
+            mask_sum, torch.tensor(epsilon, device=mask_sum.device)
+        )
+
+        # Compute weighted sum and divide by mask sum
+        weighted_sum = (hidden_states * attention_mask).sum(dim=0)
+        pooled = weighted_sum / mask_sum
+
+        # Clip any extreme values
+        pooled = torch.clamp(pooled, min=-100.0, max=100.0)
+
+        return pooled
+
     def get_embeddings_and_predict(self, text):
         """Get token embeddings and prediction for full text in one pass"""
         with torch.no_grad():
@@ -60,9 +81,11 @@ class TextSegmenter:
         with torch.no_grad():
             segment_states = hidden_states[start_token:end_token]
             segment_mask = attention_mask[start_token:end_token]
-            segment_mask = segment_mask.unsqueeze(-1)
-            pooled = (segment_states * segment_mask).sum(dim=0) / segment_mask.sum()
+
+            # Use safe pooling
+            pooled = self.safe_mean_pooling(segment_states, segment_mask)
             pooled = pooled.unsqueeze(0)
+
             logits = self.model.classifier(self.model.head(pooled))
             probs = torch.sigmoid(logits).cpu().numpy()[0]
             return probs
@@ -75,9 +98,7 @@ class TextSegmenter:
         hidden_states, attention_mask, parent_probs = self.get_embeddings_and_predict(
             text
         )
-        full_text_embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
-            dim=0
-        ) / attention_mask.sum()
+        full_text_embedding = self.safe_mean_pooling(hidden_states, attention_mask)
         full_text_embedding = full_text_embedding.cpu().numpy().tolist()
 
         # Check token count instead of character length
@@ -126,54 +147,6 @@ class TextSegmenter:
 
         seg1_text, seg2_text = best_segments
         return self.segment_recursively(seg1_text) + self.segment_recursively(seg2_text)
-
-    def combine_segments(self, segments, threshold=0.35):
-        """Combine consecutive segments with the same labels"""
-        if not segments:
-            return []
-
-        combined_segments = []
-        current_text = segments[0][0]
-        current_probs = segments[0][1]
-
-        for i in range(1, len(segments)):
-            # Get labels for current segment and next segment
-            current_labels = set(
-                j for j, p in enumerate(current_probs) if p > threshold
-            )
-            next_labels = set(j for j, p in enumerate(segments[i][1]) if p > threshold)
-
-            # If labels match, combine segments
-            if current_labels == next_labels:
-                current_text += " " + segments[i][0]
-                # Recalculate embeddings and probabilities for combined text
-                _, _, new_probs = self.get_embeddings_and_predict(current_text)
-                current_probs = new_probs
-            else:
-                # Get embeddings for the current combined segment
-                hidden_states, attention_mask, _ = self.get_embeddings_and_predict(
-                    current_text
-                )
-                embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
-                    dim=0
-                ) / attention_mask.sum()
-                embedding = embedding.cpu().numpy().tolist()
-
-                # Add current combined segment to results
-                combined_segments.append((current_text, current_probs, embedding))
-                # Start new segment
-                current_text = segments[i][0]
-                current_probs = segments[i][1]
-
-        # Add the last segment
-        hidden_states, attention_mask, _ = self.get_embeddings_and_predict(current_text)
-        embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
-            dim=0
-        ) / attention_mask.sum()
-        embedding = embedding.cpu().numpy().tolist()
-        combined_segments.append((current_text, current_probs, embedding))
-
-        return combined_segments
 
 
 def print_result(item, threshold=0.35):
@@ -239,8 +212,6 @@ def main(model_path, dataset_path, output_path):
 
             # Get initial segments
             segments = segmenter.segment_recursively(text)
-            # Combine segments with same labels
-            combined_segments = segmenter.combine_segments(segments)
 
             result = {
                 "id": i,
@@ -254,10 +225,8 @@ def main(model_path, dataset_path, output_path):
                             "probs": [round(x, 4) for x in probs.tolist()],
                             "embedding": emb,
                         }
-                        for text, probs, emb in combined_segments
+                        for text, probs, emb in segments
                     ]
-                    if len(combined_segments) > 1
-                    else []
                 ),
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
