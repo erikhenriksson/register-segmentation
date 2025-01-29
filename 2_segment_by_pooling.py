@@ -266,7 +266,7 @@ def main(model_path, dataset_path, output_path):
                 final_segments.append(
                     {
                         "text": segment["text"],
-                        "probs": [round(4, float(x)) for x in segment["probs"]],
+                        "probs": [round(float(x), 4) for x in segment["probs"]],
                         "embedding": seg_embedding,
                     }
                 )
@@ -274,7 +274,7 @@ def main(model_path, dataset_path, output_path):
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": ([round(4, float(x)) for x in full_probs.tolist()],),
+                "text_probs": ([round(float(x), 4) for x in full_probs.tolist()],),
                 "text_embedding": text_embedding,
                 "segments": final_segments,
             }
