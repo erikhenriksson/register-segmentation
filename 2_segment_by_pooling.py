@@ -151,7 +151,7 @@ def get_last_processed_id():
     return -1
 
 
-def main(model_path, dataset_path):
+def main(model_path, dataset_path, output_path):
     all_data = []
     for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
         df = pd.read_csv(
@@ -170,7 +170,7 @@ def main(model_path, dataset_path):
 
     print("last_id:", last_id)
 
-    with open("segmentations.jsonl", "a", encoding="utf-8") as f:
+    with open(output_path, "a", encoding="utf-8") as f:
         for i, row in combined_df.iterrows():
             if i <= last_id:
                 continue
@@ -192,7 +192,7 @@ def main(model_path, dataset_path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: <model_path> <dataset_path>")
+    if len(sys.argv) != 4:
+        print("Usage: <model_path> <dataset_path> <output_path>")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
