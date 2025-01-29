@@ -41,6 +41,33 @@ class TextSegmenter:
 
             return hidden_states, attention_mask, probs
 
+    def compute_gain_entropy(self, parent_probs, segment_probs):
+        # For multilabel, each probability is independent
+        # We need to calculate binary entropy for each label and sum
+        def multilabel_entropy(probs):
+            # Convert to tensor if not already
+            probs = torch.tensor(probs) if not torch.is_tensor(probs) else probs
+            # Get probabilities using sigmoid
+            probs = torch.sigmoid(probs)
+            # Calculate binary entropy for each label
+            # entropy = -(p*log(p) + (1-p)*log(1-p))
+            binary_entropies = -(
+                probs * torch.log2(probs + 1e-10)
+                + (1 - probs) * torch.log2(1 - probs + 1e-10)
+            )
+            return binary_entropies.sum()
+
+        parent_entropy = multilabel_entropy(parent_probs)
+        seg1_entropy = multilabel_entropy(segment_probs[0])
+        seg2_entropy = multilabel_entropy(segment_probs[1])
+
+        # Average entropy of segments
+        avg_segment_entropy = (seg1_entropy + seg2_entropy) / 2
+
+        # Return reduction in entropy (positive means segments are more certain)
+
+        return parent_entropy - avg_segment_entropy
+
     def compute_gain(self, parent_probs, segment_probs):
         """
         Compute the gain from splitting a segment.
@@ -104,8 +131,6 @@ class TextSegmenter:
 
         best_gain = 0
         best_segments = None
-        best_segment_probs = None
-        best_segment_embeddings = None
 
         # Try different split points
         for split_idx in range(1, len(sentences)):
@@ -129,34 +154,17 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
-                # Calculate embeddings for segments
-                seg1_embedding = (
-                    hidden_states[:seg1_end] * attention_mask[:seg1_end].unsqueeze(-1)
-                ).sum(dim=0) / attention_mask[:seg1_end].sum()
-                seg2_embedding = (
-                    hidden_states[seg2_start:]
-                    * attention_mask[seg2_start:].unsqueeze(-1)
-                ).sum(dim=0) / attention_mask[seg2_start:].sum()
-
-                # Convert embeddings to numpy lists
-                seg1_embedding = seg1_embedding.cpu().numpy().tolist()
-                seg2_embedding = seg2_embedding.cpu().numpy().tolist()
-
-                gain = self.compute_gain(parent_probs, [probs1, probs2])
+                gain = self.compute_gain_entropy(parent_probs, [probs1, probs2])
 
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
-                    best_segment_probs = (probs1, probs2)
-                    best_segment_embeddings = (seg1_embedding, seg2_embedding)
 
         if best_segments is None:
             return [(text, parent_probs, full_text_embedding)]
 
         # Recursively segment using the best split found
         seg1_text, seg2_text = best_segments
-        seg1_probs, seg2_probs = best_segment_probs
-        seg1_emb, seg2_emb = best_segment_embeddings
 
         return self.segment_recursively(seg1_text) + self.segment_recursively(seg2_text)
 
