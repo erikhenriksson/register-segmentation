@@ -29,7 +29,8 @@ class TextSegmenter:
 
         # Ensure the mask sum is at least epsilon to prevent explosion
         mask_sum = torch.maximum(
-            mask_sum, torch.tensor(epsilon, device=mask_sum.device)
+            mask_sum,
+            torch.tensor(epsilon, device=mask_sum.device, dtype=hidden_states.dtype),
         )
 
         # Compute weighted sum and divide by mask sum
@@ -38,6 +39,9 @@ class TextSegmenter:
 
         # Clip any extreme values
         pooled = torch.clamp(pooled, min=-100.0, max=100.0)
+
+        # Ensure output is in float16 to match model dtype
+        pooled = pooled.to(dtype=torch.float16)
 
         return pooled
 
@@ -230,7 +234,7 @@ def main(model_path, dataset_path, output_path):
                 ),
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-            # print_result(result)
+            print_result(result)
             f.flush()
 
 
