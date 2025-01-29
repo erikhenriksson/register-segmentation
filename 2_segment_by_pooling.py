@@ -63,11 +63,22 @@ class TextSegmenter:
 
             return hidden_states, attention_mask, probs
 
-    def compute_gain(self, parent_probs, segment_probs):
+    def compute_gain(self, parent_probs, segment_probs, threshold=0.35):
+        """Compute gain for segment split, ensuring each segment has at least one register"""
         max_seg1 = max(segment_probs[0])
         max_seg2 = max(segment_probs[1])
         max_parent = max(parent_probs)
-        if max_seg1 > max_parent and max_seg2 > max_parent:
+
+        # Check that each segment has at least one probability above threshold
+        has_register_seg1 = any(prob > threshold for prob in segment_probs[0])
+        has_register_seg2 = any(prob > threshold for prob in segment_probs[1])
+
+        if (
+            max_seg1 > max_parent
+            and max_seg2 > max_parent
+            and has_register_seg1
+            and has_register_seg2
+        ):
             return (max_seg1 + max_seg2) / 2 - max_parent
         return 0
 
