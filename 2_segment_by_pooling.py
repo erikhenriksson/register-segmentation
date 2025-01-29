@@ -41,6 +41,14 @@ class TextSegmenter:
 
             return hidden_states, attention_mask, probs
 
+    def truncate_text(self, text):
+        tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
+            "input_ids"
+        ][0]
+        if len(tokens) > 2048:
+            text = self.tokenizer.decode(tokens[:2048], skip_special_tokens=True)
+        return text
+
     def mean_pool_and_predict(
         self, hidden_states, attention_mask, start_token, end_token
     ):
