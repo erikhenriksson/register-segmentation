@@ -78,28 +78,34 @@ class TextSegmenter:
             return probs
 
     def segment_recursively(self, text):
+        """Recursively segment text using embeddings from a single forward pass"""
         # First, get token embeddings and full text prediction
         hidden_states, attention_mask, parent_probs = self.get_embeddings_and_predict(
             text
         )
 
+        # Get pooled embedding for full text
+        full_text_embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
+            dim=0
+        ) / attention_mask.sum()
+        full_text_embedding = full_text_embedding.cpu().numpy().tolist()
+
+        # Base cases
+        if len(text) < 1000:
+            return [(text, parent_probs, full_text_embedding)]
+
+        sentences = sent_tokenize(text)
+        if len(sentences) < 2:
+            return [(text, parent_probs, full_text_embedding)]
+
         # Get token to char mapping for segmentation
         encoding = self.tokenizer(text, return_offsets_mapping=True)
         offset_mapping = encoding.offset_mapping
 
-        # Base case
-        if len(text) < 1000:
-            return [
-                (text, parent_probs, None)
-            ]  # None for embedding since we're not using it
-
-        sentences = sent_tokenize(text)
-        if len(sentences) < 2:
-            return [(text, parent_probs, None)]
-
         best_gain = 0
         best_segments = None
         best_segment_probs = None
+        best_segment_embeddings = None
 
         # Try different split points
         for split_idx in range(1, len(sentences)):
@@ -123,19 +129,34 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
+                # Calculate embeddings for segments
+                seg1_embedding = (
+                    hidden_states[:seg1_end] * attention_mask[:seg1_end].unsqueeze(-1)
+                ).sum(dim=0) / attention_mask[:seg1_end].sum()
+                seg2_embedding = (
+                    hidden_states[seg2_start:]
+                    * attention_mask[seg2_start:].unsqueeze(-1)
+                ).sum(dim=0) / attention_mask[seg2_start:].sum()
+
+                # Convert embeddings to numpy lists
+                seg1_embedding = seg1_embedding.cpu().numpy().tolist()
+                seg2_embedding = seg2_embedding.cpu().numpy().tolist()
+
                 gain = self.compute_gain(parent_probs, [probs1, probs2])
 
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
                     best_segment_probs = (probs1, probs2)
+                    best_segment_embeddings = (seg1_embedding, seg2_embedding)
 
         if best_segments is None:
-            return [(text, parent_probs, None)]
+            return [(text, parent_probs, full_text_embedding)]
 
-        # Recursively segment
+        # Recursively segment using the best split found
         seg1_text, seg2_text = best_segments
         seg1_probs, seg2_probs = best_segment_probs
+        seg1_emb, seg2_emb = best_segment_embeddings
 
         return self.segment_recursively(seg1_text) + self.segment_recursively(seg2_text)
 
@@ -201,10 +222,20 @@ def main(model_path, dataset_path, output_path):
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": full_probs.tolist(),
+                "text_probs": [round(x, 4) for x in full_probs.tolist()],
+                "text_embedding": (hidden_states * attention_mask.unsqueeze(-1))
+                .sum(dim=0)
+                .cpu()
+                .numpy()
+                .tolist()
+                / attention_mask.sum(),
                 "segments": [
-                    {"text": text, "probs": probs.tolist()}
-                    for text, probs, _ in segments
+                    {
+                        "text": text,
+                        "probs": [round(x, 4) for x in probs.tolist()],
+                        "embedding": emb,
+                    }
+                    for text, probs, emb in segments
                 ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
