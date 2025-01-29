@@ -7,15 +7,13 @@ import pandas as pd
 import torch
 from nltk.tokenize import sent_tokenize
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-import numpy as np
+
 from labels import labels
 
 
 class TextSegmenter:
     def __init__(self, model_path):
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            model_path, torch_dtype=torch.float16
-        )
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.model = self.model.to("cuda")
         self.model.eval()
@@ -148,18 +146,13 @@ def print_result(item, threshold=0.35):
     print(f"\n---- Text [{item['id']}] ----")
     print(f"True label: {item['label']}")
 
-    # Convert back to numpy array if it's a list
-    text_probs = np.array(item["text_probs"])
     text_pred_labels = [
-        labels[i] for i, p in enumerate(text_probs.flatten()) if p > threshold
+        labels[i] for i, p in enumerate(item["text_probs"]) if p > threshold
     ]
     print(f"Pred label: {', '.join(text_pred_labels)}")
 
     for j, seg in enumerate(item["segments"], 1):
-        seg_probs = np.array(seg["probs"])
-        pred_labels = [
-            labels[i] for i, p in enumerate(seg_probs.flatten()) if p > threshold
-        ]
+        pred_labels = [labels[i] for i, p in enumerate(seg["probs"]) if p > threshold]
         print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
 
 
@@ -174,38 +167,6 @@ def get_last_processed_id(output_path):
     except FileNotFoundError:
         pass
     return -1
-
-
-def combine_same_label_segments(segments, threshold=0.35):
-    """Combine consecutive segments that have the same labels above threshold"""
-    if not segments:
-        return []
-
-    def get_labels(probs):
-        return {i for i, p in enumerate(probs) if p > threshold}
-
-    combined_segments = []
-    current_text = segments[0]["text"]
-    current_probs = segments[0]["probs"]
-    current_labels = get_labels(current_probs)
-
-    for segment in segments[1:]:
-        segment_labels = get_labels(segment["probs"])
-
-        if segment_labels == current_labels:
-            # Same labels, combine
-            current_text += " " + segment["text"]
-        else:
-            # Different labels, save current and start new
-            combined_segments.append({"text": current_text, "probs": current_probs})
-            current_text = segment["text"]
-            current_probs = segment["probs"]
-            current_labels = segment_labels
-
-    # Don't forget to add the last segment
-    combined_segments.append({"text": current_text, "probs": current_probs})
-
-    return combined_segments
 
 
 def main(model_path, dataset_path, output_path):
@@ -242,46 +203,21 @@ def main(model_path, dataset_path, output_path):
                 dim=0
             ) / attention_mask.sum()
             text_embedding = text_embedding.cpu().numpy().tolist()
-            # Get initial segments
             segments = segmenter.segment_recursively(text)
-
-            # Convert to dict format for combining
-            segments_dict = [
-                {"text": text, "probs": probs, "embedding": emb}
-                for text, probs, emb in segments
-            ]
-
-            # Combine segments with same labels
-            combined_segments = combine_same_label_segments(
-                segments_dict, threshold=0.35
-            )
-
-            # Recalculate embeddings for combined segments
-            final_segments = []
-            for segment in combined_segments:
-                # Get new embeddings for combined text
-                seg_hidden_states, seg_attention_mask, seg_probs = (
-                    segmenter.get_embeddings_and_predict(segment["text"])
-                )
-                seg_embedding = (
-                    seg_hidden_states * seg_attention_mask.unsqueeze(-1)
-                ).sum(dim=0) / seg_attention_mask.sum()
-                seg_embedding = seg_embedding.cpu().numpy().tolist()
-
-                final_segments.append(
-                    {
-                        "text": segment["text"],
-                        "probs": [round(float(x), 4) for x in segment["probs"]],
-                        "embedding": seg_embedding,
-                    }
-                )
 
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": ([round(float(x), 4) for x in full_probs.tolist()],),
+                "text_probs": [round(x, 4) for x in full_probs.tolist()],
                 "text_embedding": text_embedding,
-                "segments": final_segments,
+                "segments": [
+                    {
+                        "text": text,
+                        "probs": [round(x, 4) for x in probs.tolist()],
+                        "embedding": emb,
+                    }
+                    for text, probs, emb in segments
+                ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
             print_result(result)
