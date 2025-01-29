@@ -184,16 +184,19 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = segmenter.truncate_text(row["text"])
-            full_probs, full_embedding = segmenter.get_probs_and_embedding(text)
+            # Get embeddings and predictions in one pass for full text
+            hidden_states, attention_mask, full_probs = (
+                segmenter.get_embeddings_and_predict(text)
+            )
             segments = segmenter.segment_recursively(text)
+
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": full_probs,
-                "text_embedding": full_embedding,
+                "text_probs": full_probs.tolist(),
                 "segments": [
-                    {"text": text, "probs": probs, "embedding": emb}
-                    for text, probs, emb in segments
+                    {"text": text, "probs": probs.tolist()}
+                    for text, probs, _ in segments
                 ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
