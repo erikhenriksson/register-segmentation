@@ -146,9 +146,9 @@ def print_result(item, threshold=0.35):
         print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
 
 
-def get_last_processed_id():
+def get_last_processed_id(output_path):
     try:
-        with open("segmentations.jsonl", "r", encoding="utf-8") as f:
+        with open(output_path, "r", encoding="utf-8") as f:
             last_line = None
             for line in f:
                 last_line = line
@@ -173,7 +173,7 @@ def main(model_path, dataset_path, output_path):
         all_data.append(df)
     combined_df = pd.concat(all_data, ignore_index=True)
 
-    last_id = get_last_processed_id()
+    last_id = get_last_processed_id(output_path)
     segmenter = TextSegmenter(model_path=model_path)
 
     print("last_id:", last_id)
