@@ -178,7 +178,7 @@ def print_result(item, threshold=0.35):
 
     for j, seg in enumerate(item["segments"], 1):
         pred_labels = [labels[i] for i, p in enumerate(seg["probs"]) if p > threshold]
-        print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
+        print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text']}...")
 
 
 def get_last_processed_id(output_path):
