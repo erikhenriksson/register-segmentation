@@ -17,6 +17,7 @@ class TextSegmenter:
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.model = self.model.to("cuda")
         self.model.eval()
+        self.min_tokens = 128  # Set minimum token length
 
     def get_embeddings_and_predict(self, text):
         """Get token embeddings and prediction for full text in one pass"""
@@ -65,6 +66,10 @@ class TextSegmenter:
             probs = torch.sigmoid(logits).cpu().numpy()[0]
             return probs
 
+    def get_token_count(self, text):
+        """Helper method to get token count for a text segment"""
+        return len(self.tokenizer.encode(text)) - 2  # Subtract 2 for special tokens
+
     def segment_recursively(self, text):
         hidden_states, attention_mask, parent_probs = self.get_embeddings_and_predict(
             text
@@ -74,7 +79,8 @@ class TextSegmenter:
         ) / attention_mask.sum()
         full_text_embedding = full_text_embedding.cpu().numpy().tolist()
 
-        if len(text) < 0:
+        # Check token count instead of character length
+        if self.get_token_count(text) < self.min_tokens:
             return [(text, parent_probs, full_text_embedding)]
 
         sentences = sent_tokenize(text)
@@ -91,12 +97,15 @@ class TextSegmenter:
             segment1 = " ".join(sentences[:split_idx])
             segment2 = " ".join(sentences[split_idx:])
 
-            if len(segment1) >= 0 and len(segment2) >= 0:
-                seg1_end = next(
-                    i
-                    for i, (_, end) in enumerate(offset_mapping)
-                    if end >= len(segment1)
-                )
+            # Check token counts instead of character length
+            if (
+                self.get_token_count(segment1) >= self.min_tokens
+                and self.get_token_count(segment2) >= self.min_tokens
+            ):
+
+                # Get token count for segment1
+                seg1_tokens = self.tokenizer.encode(segment1, add_special_tokens=False)
+                seg1_end = len(seg1_tokens)
                 seg2_start = seg1_end
 
                 probs1 = self.mean_pool_and_predict(
@@ -107,7 +116,6 @@ class TextSegmenter:
                 )
 
                 gain = self.compute_gain(parent_probs, [probs1, probs2])
-                # print(gain)
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
