@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 from nltk.tokenize import sent_tokenize
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-
+import numpy as np
 from labels import labels
 
 
@@ -148,13 +148,14 @@ def print_result(item, threshold=0.35):
     print(f"\n---- Text [{item['id']}] ----")
     print(f"True label: {item['label']}")
 
-    text_pred_labels = [
-        labels[i] for i, p in enumerate(item["text_probs"]) if p > threshold
-    ]
+    # Convert back to numpy array if it's a list
+    text_probs = np.array(item["text_probs"])
+    text_pred_labels = [labels[i] for i, p in enumerate(text_probs) if p > threshold]
     print(f"Pred label: {', '.join(text_pred_labels)}")
 
     for j, seg in enumerate(item["segments"], 1):
-        pred_labels = [labels[i] for i, p in enumerate(seg["probs"]) if p > threshold]
+        seg_probs = np.array(seg["probs"])
+        pred_labels = [labels[i] for i, p in enumerate(seg_probs) if p > threshold]
         print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
 
 
