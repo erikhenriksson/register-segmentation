@@ -41,33 +41,6 @@ class TextSegmenter:
 
             return hidden_states, attention_mask, probs
 
-    def compute_gain_entropy(self, parent_probs, segment_probs):
-        # For multilabel, each probability is independent
-        # We need to calculate binary entropy for each label and sum
-        def multilabel_entropy(probs):
-            # Convert to tensor if not already
-            probs = torch.tensor(probs) if not torch.is_tensor(probs) else probs
-            # Get probabilities using sigmoid
-            probs = torch.sigmoid(probs)
-            # Calculate binary entropy for each label
-            # entropy = -(p*log(p) + (1-p)*log(1-p))
-            binary_entropies = -(
-                probs * torch.log2(probs + 1e-10)
-                + (1 - probs) * torch.log2(1 - probs + 1e-10)
-            )
-            return binary_entropies.sum()
-
-        parent_entropy = multilabel_entropy(parent_probs)
-        seg1_entropy = multilabel_entropy(segment_probs[0])
-        seg2_entropy = multilabel_entropy(segment_probs[1])
-
-        # Average entropy of segments
-        avg_segment_entropy = (seg1_entropy + seg2_entropy) / 2
-
-        # Return reduction in entropy (positive means segments are more certain)
-
-        return parent_entropy - avg_segment_entropy
-
     def compute_gain(self, parent_probs, segment_probs):
         """
         Compute the gain from splitting a segment.
@@ -154,7 +127,7 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
-                gain = self.compute_gain_entropy(parent_probs, [probs1, probs2])
+                gain = self.compute_gain(parent_probs, [probs1, probs2])
 
                 if gain > best_gain:
                     best_gain = gain
@@ -196,6 +169,38 @@ def get_last_processed_id(output_path):
     return -1
 
 
+def combine_same_label_segments(segments, threshold=0.35):
+    """Combine consecutive segments that have the same labels above threshold"""
+    if not segments:
+        return []
+
+    def get_labels(probs):
+        return {i for i, p in enumerate(probs) if p > threshold}
+
+    combined_segments = []
+    current_text = segments[0]["text"]
+    current_probs = segments[0]["probs"]
+    current_labels = get_labels(current_probs)
+
+    for segment in segments[1:]:
+        segment_labels = get_labels(segment["probs"])
+
+        if segment_labels == current_labels:
+            # Same labels, combine
+            current_text += " " + segment["text"]
+        else:
+            # Different labels, save current and start new
+            combined_segments.append({"text": current_text, "probs": current_probs})
+            current_text = segment["text"]
+            current_probs = segment["probs"]
+            current_labels = segment_labels
+
+    # Don't forget to add the last segment
+    combined_segments.append({"text": current_text, "probs": current_probs})
+
+    return combined_segments
+
+
 def main(model_path, dataset_path, output_path):
     all_data = []
     for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
@@ -230,21 +235,50 @@ def main(model_path, dataset_path, output_path):
                 dim=0
             ) / attention_mask.sum()
             text_embedding = text_embedding.cpu().numpy().tolist()
+            # Get initial segments
             segments = segmenter.segment_recursively(text)
+
+            # Convert to dict format for combining
+            segments_dict = [
+                {"text": text, "probs": probs, "embedding": emb}
+                for text, probs, emb in segments
+            ]
+
+            # Combine segments with same labels
+            combined_segments = combine_same_label_segments(
+                segments_dict, threshold=0.35
+            )
+
+            # Recalculate embeddings for combined segments
+            final_segments = []
+            for segment in combined_segments:
+                # Get new embeddings for combined text
+                seg_hidden_states, seg_attention_mask, seg_probs = (
+                    segmenter.get_embeddings_and_predict(segment["text"])
+                )
+                seg_embedding = (
+                    seg_hidden_states * seg_attention_mask.unsqueeze(-1)
+                ).sum(dim=0) / seg_attention_mask.sum()
+                seg_embedding = seg_embedding.cpu().numpy().tolist()
+
+                final_segments.append(
+                    {
+                        "text": segment["text"],
+                        "probs": segment["probs"],
+                        "embedding": seg_embedding,
+                    }
+                )
 
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": [round(x, 4) for x in full_probs.tolist()],
+                "text_probs": (
+                    full_probs.tolist()
+                    if isinstance(full_probs, np.ndarray)
+                    else full_probs
+                ),
                 "text_embedding": text_embedding,
-                "segments": [
-                    {
-                        "text": text,
-                        "probs": [round(x, 4) for x in probs.tolist()],
-                        "embedding": emb,
-                    }
-                    for text, probs, emb in segments
-                ],
+                "segments": final_segments,
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
             print_result(result)
