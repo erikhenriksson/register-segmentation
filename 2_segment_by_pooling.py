@@ -208,7 +208,7 @@ def main(model_path, dataset_path, output_path):
                 ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-
+            print_result(result)
             # flush
             f.flush()
 
