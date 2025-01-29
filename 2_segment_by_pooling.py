@@ -13,9 +13,10 @@ from labels import labels
 
 class TextSegmenter:
     def __init__(self, model_path):
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_path, torch_dtype=torch.float16
+        ).to("cuda")
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
-        self.model = self.model.to("cuda")
         self.model.eval()
         self.min_tokens = 128  # Set minimum token length
 
