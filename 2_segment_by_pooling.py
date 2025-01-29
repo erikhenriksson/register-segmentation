@@ -209,6 +209,9 @@ def main(model_path, dataset_path, output_path):
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
 
+            # flush
+            f.flush()
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
