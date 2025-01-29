@@ -79,7 +79,7 @@ class TextSegmenter:
         encoding = self.tokenizer(text, return_offsets_mapping=True)
         offset_mapping = encoding.offset_mapping
 
-        best_gain = 0
+        best_gain = 0.005
         best_segments = None
 
         for split_idx in range(1, len(sentences)):
@@ -102,7 +102,7 @@ class TextSegmenter:
                 )
 
                 gain = self.compute_gain(parent_probs, [probs1, probs2])
-                print(gain)
+                # print(gain)
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
