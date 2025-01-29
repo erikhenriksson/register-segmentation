@@ -217,18 +217,18 @@ def main(model_path, dataset_path, output_path):
             hidden_states, attention_mask, full_probs = (
                 segmenter.get_embeddings_and_predict(text)
             )
+            # Calculate text embedding here while we still have tensors
+            text_embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
+                dim=0
+            ) / attention_mask.sum()
+            text_embedding = text_embedding.cpu().numpy().tolist()
             segments = segmenter.segment_recursively(text)
 
             result = {
                 "id": i,
                 "label": row["label"],
                 "text_probs": [round(x, 4) for x in full_probs.tolist()],
-                "text_embedding": (hidden_states * attention_mask.unsqueeze(-1))
-                .sum(dim=0)
-                .cpu()
-                .numpy()
-                .tolist()
-                / attention_mask.sum(),
+                "text_embedding": text_embedding,
                 "segments": [
                     {
                         "text": text,
