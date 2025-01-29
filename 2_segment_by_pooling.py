@@ -102,7 +102,7 @@ class TextSegmenter:
                 )
 
                 gain = self.compute_gain(parent_probs, [probs1, probs2])
-
+                print(gain)
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
