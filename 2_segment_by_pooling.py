@@ -29,24 +29,14 @@ class TextSegmenter:
                 return_tensors="pt",
             ).to("cuda")
 
-            # Get hidden states and prediction
             outputs = self.model(**inputs, output_hidden_states=True)
-
-            # Get last hidden state and attention mask
-            hidden_states = outputs.hidden_states[-1][0]  # Remove batch dimension
+            hidden_states = outputs.hidden_states[-1][0]
             attention_mask = inputs["attention_mask"][0]
-
-            # Get the prediction for full text
             probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
 
             return hidden_states, attention_mask, probs
 
     def compute_gain(self, parent_probs, segment_probs):
-        """
-        Compute the gain from splitting a segment.
-        Takes parent segment probabilities and a list of child segment probabilities.
-        Returns a score indicating if the split is beneficial.
-        """
         return (max(segment_probs[0]) + max(segment_probs[1])) / 2 - max(parent_probs)
 
     def truncate_text(self, text):
@@ -60,37 +50,25 @@ class TextSegmenter:
     def mean_pool_and_predict(
         self, hidden_states, attention_mask, start_token, end_token
     ):
-        """Apply mean pooling to a segment and get prediction"""
         with torch.no_grad():
-            # Get segment embeddings and mask
             segment_states = hidden_states[start_token:end_token]
             segment_mask = attention_mask[start_token:end_token]
-
-            # Apply mean pooling
             segment_mask = segment_mask.unsqueeze(-1)
             pooled = (segment_states * segment_mask).sum(dim=0) / segment_mask.sum()
-
-            # Get prediction through classification head
-            pooled = pooled.unsqueeze(0)  # Add batch dimension
+            pooled = pooled.unsqueeze(0)
             logits = self.model.classifier(self.model.head(pooled))
             probs = torch.sigmoid(logits).cpu().numpy()[0]
-
             return probs
 
     def segment_recursively(self, text):
-        """Recursively segment text using embeddings from a single forward pass"""
-        # First, get token embeddings and full text prediction
         hidden_states, attention_mask, parent_probs = self.get_embeddings_and_predict(
             text
         )
-
-        # Get pooled embedding for full text
         full_text_embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
             dim=0
         ) / attention_mask.sum()
         full_text_embedding = full_text_embedding.cpu().numpy().tolist()
 
-        # Base cases
         if len(text) < 1000:
             return [(text, parent_probs, full_text_embedding)]
 
@@ -98,20 +76,17 @@ class TextSegmenter:
         if len(sentences) < 2:
             return [(text, parent_probs, full_text_embedding)]
 
-        # Get token to char mapping for segmentation
         encoding = self.tokenizer(text, return_offsets_mapping=True)
         offset_mapping = encoding.offset_mapping
 
         best_gain = 0
         best_segments = None
 
-        # Try different split points
         for split_idx in range(1, len(sentences)):
             segment1 = " ".join(sentences[:split_idx])
             segment2 = " ".join(sentences[split_idx:])
 
             if len(segment1) >= 500 and len(segment2) >= 500:
-                # Find token indices for segments
                 seg1_end = next(
                     i
                     for i, (_, end) in enumerate(offset_mapping)
@@ -119,7 +94,6 @@ class TextSegmenter:
                 )
                 seg2_start = seg1_end
 
-                # Get predictions for segments using mean pooling
                 probs1 = self.mean_pool_and_predict(
                     hidden_states, attention_mask, 0, seg1_end
                 )
@@ -136,10 +110,56 @@ class TextSegmenter:
         if best_segments is None:
             return [(text, parent_probs, full_text_embedding)]
 
-        # Recursively segment using the best split found
         seg1_text, seg2_text = best_segments
-
         return self.segment_recursively(seg1_text) + self.segment_recursively(seg2_text)
+
+    def combine_segments(self, segments, threshold=0.35):
+        """Combine consecutive segments with the same labels"""
+        if not segments:
+            return []
+
+        combined_segments = []
+        current_text = segments[0][0]
+        current_probs = segments[0][1]
+
+        for i in range(1, len(segments)):
+            # Get labels for current segment and next segment
+            current_labels = set(
+                j for j, p in enumerate(current_probs) if p > threshold
+            )
+            next_labels = set(j for j, p in enumerate(segments[i][1]) if p > threshold)
+
+            # If labels match, combine segments
+            if current_labels == next_labels:
+                current_text += " " + segments[i][0]
+                # Recalculate embeddings and probabilities for combined text
+                _, _, new_probs = self.get_embeddings_and_predict(current_text)
+                current_probs = new_probs
+            else:
+                # Get embeddings for the current combined segment
+                hidden_states, attention_mask, _ = self.get_embeddings_and_predict(
+                    current_text
+                )
+                embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
+                    dim=0
+                ) / attention_mask.sum()
+                embedding = embedding.cpu().numpy().tolist()
+
+                # Add current combined segment to results
+                combined_segments.append((current_text, current_probs, embedding))
+                # Start new segment
+                current_text = segments[i][0]
+                current_probs = segments[i][1]
+
+        # Add the last segment
+        hidden_states, attention_mask, _ = self.get_embeddings_and_predict(current_text)
+        embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
+            dim=0
+        ) / attention_mask.sum()
+        embedding = embedding.cpu().numpy().tolist()
+        combined_segments.append((current_text, current_probs, embedding))
+
+        return combined_segments
 
 
 def print_result(item, threshold=0.35):
@@ -194,16 +214,18 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = segmenter.truncate_text(row["text"])
-            # Get embeddings and predictions in one pass for full text
             hidden_states, attention_mask, full_probs = (
                 segmenter.get_embeddings_and_predict(text)
             )
-            # Calculate text embedding here while we still have tensors
             text_embedding = (hidden_states * attention_mask.unsqueeze(-1)).sum(
                 dim=0
             ) / attention_mask.sum()
             text_embedding = text_embedding.cpu().numpy().tolist()
+
+            # Get initial segments
             segments = segmenter.segment_recursively(text)
+            # Combine segments with same labels
+            combined_segments = segmenter.combine_segments(segments)
 
             result = {
                 "id": i,
@@ -216,12 +238,11 @@ def main(model_path, dataset_path, output_path):
                         "probs": [round(x, 4) for x in probs.tolist()],
                         "embedding": emb,
                     }
-                    for text, probs, emb in segments
+                    for text, probs, emb in combined_segments
                 ],
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
             print_result(result)
-            # flush
             f.flush()
 
 
