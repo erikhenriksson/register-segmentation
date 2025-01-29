@@ -264,7 +264,7 @@ def main(model_path, dataset_path, output_path):
                 final_segments.append(
                     {
                         "text": segment["text"],
-                        "probs": segment["probs"],
+                        "probs": [round(4, x) for x in segment["probs"]],
                         "embedding": seg_embedding,
                     }
                 )
@@ -272,11 +272,7 @@ def main(model_path, dataset_path, output_path):
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": (
-                    full_probs.tolist()
-                    if isinstance(full_probs, np.ndarray)
-                    else full_probs
-                ),
+                "text_probs": ([round(4, x) for x in full_probs.tolist()],),
                 "text_embedding": text_embedding,
                 "segments": final_segments,
             }
