@@ -19,6 +19,7 @@ class TextSegmenter:
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.model.eval()
         self.min_tokens = 128  # Set minimum token length
+        self.threshold = 0.35  # Set threshold for segmenting
 
     def safe_mean_pooling(self, hidden_states, attention_mask):
         """Safe mean pooling that handles edge cases to prevent infinite values"""
@@ -63,15 +64,15 @@ class TextSegmenter:
 
             return hidden_states, attention_mask, probs
 
-    def compute_gain(self, parent_probs, segment_probs, threshold=0.35):
+    def compute_gain(self, parent_probs, segment_probs):
         """Compute gain for segment split, ensuring each segment has at least one register"""
         max_seg1 = max(segment_probs[0])
         max_seg2 = max(segment_probs[1])
         max_parent = max(parent_probs)
 
         # Check that each segment has at least one probability above threshold
-        has_register_seg1 = any(prob > threshold for prob in segment_probs[0])
-        has_register_seg2 = any(prob > threshold for prob in segment_probs[1])
+        has_register_seg1 = any(prob > self.threshold for prob in segment_probs[0])
+        has_register_seg2 = any(prob > self.threshold for prob in segment_probs[1])
 
         if (
             max_seg1 > max_parent
@@ -81,6 +82,42 @@ class TextSegmenter:
         ):
             return (max_seg1 + max_seg2) / 2 - max_parent
         return 0
+
+    def compute_gain_2(self, parent_probs, segment_probs):
+        """Compute gain for segment split, ensuring each segment has at least one register and different registers from parent"""
+        # Get registers for parent and segments using threshold
+        parent_registers = {
+            i for i, prob in enumerate(parent_probs) if prob > self.threshold
+        }
+        seg1_registers = {
+            i for i, prob in enumerate(segment_probs[0]) if prob > self.threshold
+        }
+        seg2_registers = {
+            i for i, prob in enumerate(segment_probs[1]) if prob > self.threshold
+        }
+
+        # Check max probabilities
+        max_seg1 = max(segment_probs[0])
+        max_seg2 = max(segment_probs[1])
+        max_parent = max(parent_probs)
+
+        # Return 0 if:
+        # - Either segment doesn't have higher max prob than parent
+        # - Either segment has no registers above threshold
+        # - Both segments have exactly the same registers as parent
+        if (
+            max_seg1 <= max_parent
+            or max_seg2 <= max_parent
+            or not seg1_registers
+            or not seg2_registers
+            or (
+                seg1_registers == parent_registers
+                and seg2_registers == parent_registers
+            )
+        ):
+            return 0
+
+        return (max_seg1 + max_seg2) / 2 - max_parent
 
     def truncate_text(self, text):
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
@@ -116,16 +153,13 @@ class TextSegmenter:
         full_text_embedding = self.safe_mean_pooling(hidden_states, attention_mask)
         full_text_embedding = full_text_embedding.cpu().numpy().tolist()
 
-        # Check token count instead of character length
+        # Check token count
         if self.get_token_count(text) < self.min_tokens:
             return [(text, parent_probs, full_text_embedding)]
 
         sentences = sent_tokenize(text)
         if len(sentences) < 2:
             return [(text, parent_probs, full_text_embedding)]
-
-        encoding = self.tokenizer(text, return_offsets_mapping=True)
-        offset_mapping = encoding.offset_mapping
 
         best_gain = 0.005
         best_segments = None
@@ -134,7 +168,7 @@ class TextSegmenter:
             segment1 = " ".join(sentences[:split_idx])
             segment2 = " ".join(sentences[split_idx:])
 
-            # Check token counts instead of character length
+            # Check token counts
             if (
                 self.get_token_count(segment1) >= self.min_tokens
                 and self.get_token_count(segment2) >= self.min_tokens
@@ -152,7 +186,7 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
-                gain = self.compute_gain(parent_probs, [probs1, probs2])
+                gain = self.compute_gain_2(parent_probs, [probs1, probs2])
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
@@ -163,20 +197,21 @@ class TextSegmenter:
         seg1_text, seg2_text = best_segments
         return self.segment_recursively(seg1_text) + self.segment_recursively(seg2_text)
 
+    def print_result(self, item):
+        print(f"\n---- Text [{item['id']}] ----")
+        print(f"True label: {item['label']}")
 
-def print_result(item, threshold=0.35):
-    print(f"\n---- Text [{item['id']}] ----")
-    print(f"True label: {item['label']}")
+        text_pred_labels = [
+            labels[i] for i, p in enumerate(item["text_probs"]) if p > self.threshold
+        ]
+        print(f"Pred label: {', '.join(text_pred_labels)}")
 
-    text_pred_labels = [
-        labels[i] for i, p in enumerate(item["text_probs"]) if p > threshold
-    ]
-    print(f"Pred label: {', '.join(text_pred_labels)}")
-
-    for j, seg in enumerate(item["segments"], 1):
-        pred_labels = [labels[i] for i, p in enumerate(seg["probs"]) if p > threshold]
-        print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text']}")
-        print("---")
+        for j, seg in enumerate(item["segments"], 1):
+            pred_labels = [
+                labels[i] for i, p in enumerate(seg["probs"]) if p > self.threshold
+            ]
+            print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text']}")
+            print("---")
 
 
 def get_last_processed_id(output_path):
@@ -245,7 +280,7 @@ def main(model_path, dataset_path, output_path):
                 ),
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-            print_result(result)
+            segmenter.print_result(result)
             f.flush()
 
 
