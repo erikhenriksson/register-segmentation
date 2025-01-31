@@ -157,7 +157,7 @@ class TextSegmenter:
         if len(sentences) < 2:
             return [(text, parent_probs, full_text_embedding)]
 
-        best_gain = 0.01
+        best_gain = 0.1
         best_segments = None
 
         for split_idx in range(1, len(sentences)):
