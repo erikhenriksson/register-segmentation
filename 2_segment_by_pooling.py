@@ -113,7 +113,7 @@ class TextSegmenter:
             return 0
 
         # Calculate gain based on best improvement
-        return max([max_seg1, max_seg2]) - max_parent
+        return min(max_seg1 - max_parent, max_seg2 - max_parent)
 
     def truncate_text(self, text):
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
