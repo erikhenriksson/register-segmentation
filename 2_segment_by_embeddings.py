@@ -1,8 +1,6 @@
 import glob
 import json
 import sys
-
-import nltk
 import pandas as pd
 import torch
 from nltk.tokenize import sent_tokenize
@@ -148,12 +146,7 @@ class TextSegmenter:
 
     def compute_gain_semantic(self, parent_embedding, seg1_embedding, seg2_embedding):
         """
-        Compute gain for segment split using only embedding dissimilarity.
-
-        Args:
-            parent_embedding: Hidden state embedding for parent segment
-            seg1_embedding: Hidden state embedding for first child segment
-            seg2_embedding: Hidden state embedding for second child segment
+        Compute gain using semantic dissimilarity.
         """
 
         def cosine_similarity(v1, v2):
@@ -162,67 +155,78 @@ class TextSegmenter:
             norm2 = sum(b * b for b in v2) ** 0.5
             return dot_product / (norm1 * norm2) if norm1 > 0 and norm2 > 0 else 0
 
-        # Calculate similarities
         seg1_parent_sim = cosine_similarity(parent_embedding, seg1_embedding)
         seg2_parent_sim = cosine_similarity(parent_embedding, seg2_embedding)
         seg1_seg2_sim = cosine_similarity(seg1_embedding, seg2_embedding)
 
-        # We want:
-        # 1. High dissimilarity between segments (1 - seg1_seg2_sim should be high)
-        # 2. Some dissimilarity with parent (but not too much, as segments should still be related)
+        # Compute how different segments are from each other vs from parent
         semantic_gain = (1 - seg1_seg2_sim) - 0.5 * (
             (seg1_parent_sim + seg2_parent_sim) / 2
         )
+        return semantic_gain
 
-        # Only split if segments are sufficiently different from each other
-        if seg1_seg2_sim > 0.9:  # High similarity threshold
-            return 0
+    def find_elbow(self, sorted_gains):
+        """
+        Find if there's a significant elbow in the sorted gains.
+        Returns (has_elbow, elbow_idx).
+        """
+        if len(sorted_gains) < 3:  # Need at least 3 points to find meaningful elbow
+            return False, 0
 
-        return (
-            semantic_gain if semantic_gain > 0.1 else 0
-        )  # Adjusted threshold for semantic-only approach
+        # Calculate consecutive differences
+        diffs = [
+            sorted_gains[i + 1] - sorted_gains[i] for i in range(len(sorted_gains) - 1)
+        ]
+
+        # Find the point with maximum difference (the elbow)
+        max_diff_idx = max(range(len(diffs)), key=lambda i: diffs[i])
+        max_diff = diffs[max_diff_idx]
+
+        # Calculate mean and std of differences
+        mean_diff = sum(diffs) / len(diffs)
+
+        # If max difference is significantly larger than mean difference,
+        # we have a meaningful elbow
+        if (
+            max_diff > 2 * mean_diff
+        ):  # The factor 2 comes from the idea of "significantly larger"
+            return True, max_diff_idx
+
+        return False, 0
 
     def segment_recursively(self, text):
         """
-        Recursively segment text based on semantic similarity.
+        Recursively segment text using elbow method to determine splits.
         """
-        # Get embeddings and probabilities for full text
         hidden_states, attention_mask, parent_probs = self.get_embeddings_and_predict(
             text
         )
-
-        # Get embedding for full text
         full_text_embedding = self.safe_mean_pooling(hidden_states, attention_mask)
         full_text_embedding = full_text_embedding.cpu().numpy().tolist()
 
-        # Check minimum token count
         if self.get_token_count(text) < self.min_tokens:
             return [(text, parent_probs, full_text_embedding)]
 
-        # Split into sentences
         sentences = sent_tokenize(text)
         if len(sentences) < 2:
             return [(text, parent_probs, full_text_embedding)]
 
-        best_gain = 0.1  # Adjusted threshold for semantic-only approach
-        best_segments = None
+        # Collect all possible splits and their gains
+        splits = []
 
         for split_idx in range(1, len(sentences)):
             segment1 = " ".join(sentences[:split_idx])
             segment2 = " ".join(sentences[split_idx:])
 
-            # Check token counts
             if (
                 self.get_token_count(segment1) >= self.min_tokens
                 and self.get_token_count(segment2) >= self.min_tokens
             ):
 
-                # Get token indices for segments
                 seg1_tokens = self.tokenizer.encode(segment1, add_special_tokens=False)
                 seg1_end = len(seg1_tokens)
                 seg2_start = seg1_end
 
-                # Get embeddings for segments
                 seg1_states = hidden_states[:seg1_end]
                 seg1_mask = attention_mask[:seg1_end]
                 seg1_embedding = self.safe_mean_pooling(seg1_states, seg1_mask)
@@ -233,7 +237,6 @@ class TextSegmenter:
                 seg2_embedding = self.safe_mean_pooling(seg2_states, seg2_mask)
                 seg2_embedding = seg2_embedding.cpu().numpy().tolist()
 
-                # Get probabilities for segments (needed for return value)
                 probs1 = self.mean_pool_and_predict(
                     hidden_states, attention_mask, 0, seg1_end
                 )
@@ -241,25 +244,39 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
-                # Compute gain using only semantic similarity
                 gain = self.compute_gain_semantic(
                     full_text_embedding, seg1_embedding, seg2_embedding
                 )
 
-                if gain > best_gain:
-                    best_gain = gain
-                    best_segments = (
-                        (segment1, probs1, seg1_embedding),
-                        (segment2, probs2, seg2_embedding),
-                    )
+                splits.append(
+                    {
+                        "gain": gain,
+                        "segments": (
+                            (segment1, probs1, seg1_embedding),
+                            (segment2, probs2, seg2_embedding),
+                        ),
+                    }
+                )
 
-        if best_segments is None:
+        if not splits:
             return [(text, parent_probs, full_text_embedding)]
 
-        # Recursively segment the best segments found
-        return self.segment_recursively(best_segments[0][0]) + self.segment_recursively(
-            best_segments[1][0]
-        )
+        # Sort splits by gain
+        splits.sort(key=lambda x: x["gain"])
+        gains = [split["gain"] for split in splits]
+
+        # Check if there's a meaningful elbow
+        has_elbow, elbow_idx = self.find_elbow(gains)
+
+        if has_elbow:
+            # Take the split with maximum gain (which will be the last one since they're sorted)
+            best_segments = splits[-1]["segments"]
+            return self.segment_recursively(
+                best_segments[0][0]
+            ) + self.segment_recursively(best_segments[1][0])
+
+        # If no meaningful elbow found, don't split
+        return [(text, parent_probs, full_text_embedding)]
 
     def print_result(self, item):
         print(f"\n---- Text [{item['id']}] ----")

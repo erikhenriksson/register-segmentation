@@ -2,7 +2,6 @@ import glob
 import json
 import sys
 
-import nltk
 import pandas as pd
 import torch
 from nltk.tokenize import sent_tokenize
