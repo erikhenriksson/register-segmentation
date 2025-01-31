@@ -112,7 +112,36 @@ class TextSegmenter:
         if seg1_registers == parent_registers and seg2_registers == parent_registers:
             return 0
 
-        # Calculate gain based on best improvement
+        # Build child -> parent mapping
+        child_to_parent = {}
+        for parent, children in labels_structure.items():
+            for child in children:
+                child_to_parent[child] = parent
+
+        # Get the specific (child) registers in parent
+        parent_labels = {labels[i] for i in parent_registers}
+        parent_specific_registers = {
+            label for label in parent_labels if label in child_to_parent
+        }
+
+        if parent_specific_registers:
+            # Check each segment
+            seg1_labels = {labels[i] for i in seg1_registers}
+            seg2_labels = {labels[i] for i in seg2_registers}
+
+            # For each specific register in parent, if a segment has
+            # only its parent category without the specific register,
+            # that's losing specificity
+            for specific in parent_specific_registers:
+                parent_of_specific = child_to_parent[specific]
+                if (
+                    parent_of_specific in seg1_labels and specific not in seg1_labels
+                ) or (
+                    parent_of_specific in seg2_labels and specific not in seg2_labels
+                ):
+                    return 0
+
+        # Calculate gain based on minimum improvement
         return min(max_seg1 - max_parent, max_seg2 - max_parent)
 
     def truncate_text(self, text):
@@ -157,7 +186,7 @@ class TextSegmenter:
         if len(sentences) < 2:
             return [(text, parent_probs, full_text_embedding)]
 
-        best_gain = 0.1
+        best_gain = 0.05
         best_segments = None
 
         for split_idx in range(1, len(sentences)):
