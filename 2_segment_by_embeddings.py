@@ -163,11 +163,7 @@ class TextSegmenter:
         # semantic_gain = seg1_seg2_dist - 0.5 * (seg1_parent_dist + seg2_parent_dist)
         semantic_gain = seg1_seg2_dist
 
-        return semantic_gain, {
-            "seg1_parent_dist": seg1_parent_dist,
-            "seg2_parent_dist": seg2_parent_dist,
-            "seg1_seg2_dist": seg1_seg2_dist,
-        }
+        return semantic_gain
 
     def segment_recursively(self, text):
         """
