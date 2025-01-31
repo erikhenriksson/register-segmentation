@@ -7,7 +7,7 @@ import torch
 from nltk.tokenize import sent_tokenize
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from labels import labels
+from labels import labels, labels_structure
 
 
 class TextSegmenter:
