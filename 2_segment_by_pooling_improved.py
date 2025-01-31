@@ -133,25 +133,27 @@ class TextSegmenter:
         if not (seg1_registers and seg2_registers):
             return 0
 
-        # Each segment must be meaningfully different from parent
         seg1_max = max(seg1_registers.values())
         seg2_max = max(seg2_registers.values())
         parent_max = max(parent_registers.values())
 
-        MIN_IMPROVEMENT = 0.15  # Increased threshold
-
-        # Require BOTH segments to improve significantly
+        # Require:
+        # 1. At least one segment to improve significantly (0.15)
+        # 2. The other segment to at least not be worse
+        # 3. Different main registers in the segments
+        MIN_SIGNIFICANT_IMPROVEMENT = 0.15
         if not (
-            seg1_max > parent_max + MIN_IMPROVEMENT
-            and seg2_max > parent_max + MIN_IMPROVEMENT
+            (
+                seg1_max > parent_max + MIN_SIGNIFICANT_IMPROVEMENT
+                or seg2_max > parent_max + MIN_SIGNIFICANT_IMPROVEMENT
+            )
+            and min(seg1_max, seg2_max) >= parent_max
         ):
             return 0
 
-        # Check register relationships
         seg1_main = max(seg1_registers.items(), key=lambda x: x[1])[0]
         seg2_main = max(seg2_registers.items(), key=lambda x: x[1])[0]
 
-        # Don't split if both segments get the exact same register
         if seg1_main == seg2_main:
             return 0
 
