@@ -147,17 +147,19 @@ class TextSegmenter:
 
     def compute_gain_semantic(self, parent_embedding, seg1_embedding, seg2_embedding):
         """
-        Compute gain using L1 (Manhattan) distance with detailed logging.
+        Compute gain using normalized L1 (Manhattan) distance.
         """
 
-        def l1_distance(v1, v2):
-            return sum(abs(a - b) for a, b in zip(v1, v2))
+        def normalized_l1_distance(v1, v2):
+            # Divide by number of dimensions to get average absolute difference per dimension
+            return sum(abs(a - b) for a, b in zip(v1, v2)) / len(v1)
 
-        # Compute pairwise L1 distances
-        seg1_parent_dist = l1_distance(parent_embedding, seg1_embedding)
-        seg2_parent_dist = l1_distance(parent_embedding, seg2_embedding)
-        seg1_seg2_dist = l1_distance(seg1_embedding, seg2_embedding)
+        # Compute pairwise normalized L1 distances
+        seg1_parent_dist = normalized_l1_distance(parent_embedding, seg1_embedding)
+        seg2_parent_dist = normalized_l1_distance(parent_embedding, seg2_embedding)
+        seg1_seg2_dist = normalized_l1_distance(seg1_embedding, seg2_embedding)
 
+        # Gain calculation remains the same, but now uses normalized distances
         semantic_gain = seg1_seg2_dist - 0.5 * (seg1_parent_dist + seg2_parent_dist)
 
         return semantic_gain, {
