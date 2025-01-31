@@ -18,7 +18,7 @@ class TextSegmenter:
         self.model.eval()
         self.min_tokens = 128  # Set minimum token length
         self.threshold = 0.35  # Set threshold for register labels
-        self.gain_threshold = 5  # Set threshold for gain
+        self.gain_threshold = 0.1  # Set threshold for gain
 
     def safe_mean_pooling(self, hidden_states, attention_mask):
         """Safe mean pooling that handles edge cases to prevent infinite values"""
@@ -147,27 +147,28 @@ class TextSegmenter:
 
     def compute_gain_semantic(self, parent_embedding, seg1_embedding, seg2_embedding):
         """
-        Compute gain using normalized L1 (Manhattan) distance.
+        Compute gain using cosine similarity.
         """
 
-        def normalized_l1_distance(v1, v2):
-            # Divide by number of dimensions to get average absolute difference per dimension
-            return sum(abs(a - b) for a, b in zip(v1, v2)) / len(v1)
+        def cosine_similarity(v1, v2):
+            dot_product = sum(a * b for a, b in zip(v1, v2))
+            norm1 = sum(a * a for a in v1) ** 0.5
+            norm2 = sum(b * b for b in v2) ** 0.5
+            return dot_product / (norm1 * norm2) if norm1 > 0 and norm2 > 0 else 0
 
-        # Compute pairwise normalized L1 distances
-        seg1_parent_dist = normalized_l1_distance(parent_embedding, seg1_embedding)
-        seg2_parent_dist = normalized_l1_distance(parent_embedding, seg2_embedding)
-        seg1_seg2_dist = normalized_l1_distance(seg1_embedding, seg2_embedding)
+        seg1_parent_sim = cosine_similarity(parent_embedding, seg1_embedding)
+        seg2_parent_sim = cosine_similarity(parent_embedding, seg2_embedding)
+        seg1_seg2_sim = cosine_similarity(seg1_embedding, seg2_embedding)
 
-        # Gain calculation remains the same, but now uses normalized distances
-        # semantic_gain = seg1_seg2_dist - 0.5 * (seg1_parent_dist + seg2_parent_dist)
-        semantic_gain = seg1_seg2_dist
+        semantic_gain = seg1_seg2_sim
 
-        return semantic_gain
+        return semantic_gain, {
+            "seg1_seg2_sim": seg1_seg2_sim,
+        }
 
     def segment_recursively(self, text):
         """
-        Recursively segment text using L1 distances and threshold.
+        Recursively segment text with detailed gain logging.
         """
         hidden_states, attention_mask, parent_probs = self.get_embeddings_and_predict(
             text
@@ -184,6 +185,10 @@ class TextSegmenter:
 
         best_gain = -float("inf")
         best_segments = None
+        all_gains = []
+
+        print("\n=== Analyzing text of length:", len(text), "===")
+        print("Number of sentences:", len(sentences))
 
         for split_idx in range(1, len(sentences)):
             segment1 = " ".join(sentences[:split_idx])
@@ -216,9 +221,19 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
-                gain = self.compute_gain_semantic(
+                gain, distances = self.compute_gain_semantic(
                     full_text_embedding, seg1_embedding, seg2_embedding
                 )
+
+                # Log the gain and distances for this split
+                split_info = {
+                    "split_idx": split_idx,
+                    "gain": gain,
+                    "seg1_len": len(segment1),
+                    "seg2_len": len(segment2),
+                    **distances,
+                }
+                all_gains.append(split_info)
 
                 if gain > best_gain:
                     best_gain = gain
@@ -227,12 +242,22 @@ class TextSegmenter:
                         (segment2, probs2, seg2_embedding),
                     )
 
-        # If best gain exceeds threshold, split
-        if best_gain > self.gain_threshold:
-            return self.segment_recursively(
-                best_segments[0][0]
-            ) + self.segment_recursively(best_segments[1][0])
+        # Print summary of gains
+        if all_gains:
+            print("\nGains summary:")
+            sorted_gains = sorted(all_gains, key=lambda x: x["gain"])
+            print(f"Min gain: {sorted_gains[0]['gain']:.3f}")
+            print(f"Max gain: {sorted_gains[-1]['gain']:.3f}")
+            print(f"Best split at sentence {sorted_gains[-1]['split_idx']}")
+            print("\nAll gains:")
+            for info in sorted_gains:
+                print(
+                    f"Split {info['split_idx']:2d}: gain={info['gain']:.3f}, "
+                    f"seg1_seg2_dist={info['seg1_seg2_dist']:.3f}, "
+                    f"parent_dists=({info['seg1_parent_dist']:.3f}, {info['seg2_parent_dist']:.3f})"
+                )
 
+        # For now, return without splitting so we can collect gain statistics
         return [(text, parent_probs, full_text_embedding)]
 
     def print_result(self, item):
@@ -318,7 +343,7 @@ def main(model_path, dataset_path, output_path):
                 ),
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-            # segmenter.print_result(result)
+            segmenter.print_result(result)
             f.flush()
 
 
