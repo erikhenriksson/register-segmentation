@@ -318,7 +318,7 @@ def main(model_path, dataset_path, output_path):
                 ),
             }
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-            segmenter.print_result(result)
+            # segmenter.print_result(result)
             f.flush()
 
 
