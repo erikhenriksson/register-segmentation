@@ -116,7 +116,7 @@ class TextSegmenter:
         ):
             return 0
 
-        return (max_seg1 + max_seg2) / 2 - max_parent
+        return max([max_seg1, max_seg2]) - max_parent
 
     def truncate_text(self, text):
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
