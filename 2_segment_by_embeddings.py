@@ -18,7 +18,7 @@ class TextSegmenter:
         self.model.eval()
         self.min_tokens = 128  # Set minimum token length
         self.threshold = 0.35  # Set threshold for register labels
-        self.gain_threshold = 3  # Set threshold for gain
+        self.gain_threshold = 5  # Set threshold for gain
 
     def safe_mean_pooling(self, hidden_states, attention_mask):
         """Safe mean pooling that handles edge cases to prevent infinite values"""
