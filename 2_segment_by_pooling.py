@@ -83,8 +83,8 @@ class TextSegmenter:
         return 0
 
     def compute_gain_2(self, parent_probs, segment_probs):
-        """Compute gain for segment split, ensuring each segment has at least one register and different registers from parent"""
-        # Get registers for parent and segments using threshold
+        """Compute gain for segment split, ensuring segments have meaningful registers"""
+        # Get registers above threshold for each segment
         parent_registers = {
             i for i, prob in enumerate(parent_probs) if prob > self.threshold
         }
@@ -100,22 +100,19 @@ class TextSegmenter:
         max_seg2 = max(segment_probs[1])
         max_parent = max(parent_probs)
 
-        # Return 0 if:
-        # - Either segment doesn't have higher max prob than parent
-        # - Either segment has no registers above threshold
-        # - Both segments have exactly the same registers as parent
-        if (
-            max_seg1 <= max_parent
-            or max_seg2 <= max_parent
-            or not seg1_registers
-            or not seg2_registers
-            or (
-                seg1_registers == parent_registers
-                and seg2_registers == parent_registers
-            )
-        ):
+        # Both segments must have at least one register above threshold
+        if not (seg1_registers and seg2_registers):
             return 0
 
+        # At least one segment must improve over parent probability
+        if max_seg1 <= max_parent and max_seg2 <= max_parent:
+            return 0
+
+        # Reject if both segments have exactly same registers as parent
+        if seg1_registers == parent_registers and seg2_registers == parent_registers:
+            return 0
+
+        # Calculate gain based on best improvement
         return max([max_seg1, max_seg2]) - max_parent
 
     def truncate_text(self, text):
