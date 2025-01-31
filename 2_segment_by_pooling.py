@@ -124,21 +124,18 @@ class TextSegmenter:
             label for label in parent_labels if label in child_to_parent
         }
 
+        # Only check specificity if parent has specific registers
         if parent_specific_registers:
-            # Check each segment
             seg1_labels = {labels[i] for i in seg1_registers}
             seg2_labels = {labels[i] for i in seg2_registers}
 
-            # For each specific register in parent, if a segment has
-            # only its parent category without the specific register,
-            # that's losing specificity
+            # For each specific register in parent
             for specific in parent_specific_registers:
                 parent_of_specific = child_to_parent[specific]
-                if (
-                    parent_of_specific in seg1_labels and specific not in seg1_labels
-                ) or (
-                    parent_of_specific in seg2_labels and specific not in seg2_labels
-                ):
+                # Only check segments that HAVE the parent register
+                if parent_of_specific in seg1_labels and specific not in seg1_labels:
+                    return 0
+                if parent_of_specific in seg2_labels and specific not in seg2_labels:
                     return 0
 
         # Calculate gain based on minimum improvement
