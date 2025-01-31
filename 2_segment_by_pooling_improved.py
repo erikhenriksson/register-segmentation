@@ -119,10 +119,6 @@ class TextSegmenter:
         return (max_seg1 + max_seg2) / 2 - max_parent
 
     def compute_gain_flexible(self, parent_probs, segment_probs):
-        """
-        Compute gain allowing for both hierarchical refinement AND discovery of new registers,
-        but with different thresholds/weights for different scenarios
-        """
         parent_registers = {
             i: p for i, p in enumerate(parent_probs) if p > self.threshold
         }
@@ -133,48 +129,33 @@ class TextSegmenter:
             i: p for i, p in enumerate(segment_probs[1]) if p > self.threshold
         }
 
-        # Base case: both segments must have at least one strong register
+        # Both segments must have strong registers
         if not (seg1_registers and seg2_registers):
             return 0
 
-        # Calculate different types of improvements
+        # Each segment must be meaningfully different from parent
+        seg1_max = max(seg1_registers.values())
+        seg2_max = max(seg2_registers.values())
+        parent_max = max(parent_registers.values())
 
-        # 1. Direct improvement on parent registers
-        parent_improvement = any(
-            seg1_registers.get(idx, 0) > prob or seg2_registers.get(idx, 0) > prob
-            for idx, prob in parent_registers.items()
-        )
+        MIN_IMPROVEMENT = 0.15  # Increased threshold
 
-        # 2. Finding more specific (child) registers
-        has_child_registers = any(
-            any(
-                child_label in labels_structure.get(labels[parent_idx], [])
-                and (
-                    labels.index(child_label) in seg1_registers
-                    or labels.index(child_label) in seg2_registers
-                )
-                for child_label in labels_structure.get(labels[parent_idx], [])
-            )
-            for parent_idx in parent_registers
-        )
+        # Require BOTH segments to improve significantly
+        if not (
+            seg1_max > parent_max + MIN_IMPROVEMENT
+            and seg2_max > parent_max + MIN_IMPROVEMENT
+        ):
+            return 0
 
-        # 3. Finding completely new registers with strong signal
-        new_register_strength = (
-            max(seg1_registers.values()) + max(seg2_registers.values())
-        ) / 2
-        parent_strength = max(parent_registers.values())
-        significant_improvement = (
-            new_register_strength > parent_strength + 0.1
-        )  # Adjustable threshold
+        # Check register relationships
+        seg1_main = max(seg1_registers.items(), key=lambda x: x[1])[0]
+        seg2_main = max(seg2_registers.items(), key=lambda x: x[1])[0]
 
-        # Accept the split if either:
-        # - We improve on parent registers
-        # - We find more specific registers
-        # - We find significantly stronger new registers
-        if parent_improvement or has_child_registers or significant_improvement:
-            return new_register_strength - parent_strength
+        # Don't split if both segments get the exact same register
+        if seg1_main == seg2_main:
+            return 0
 
-        return 0
+        return (seg1_max + seg2_max) / 2 - parent_max
 
     def truncate_text(self, text):
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
