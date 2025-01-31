@@ -160,7 +160,8 @@ class TextSegmenter:
         seg1_seg2_dist = normalized_l1_distance(seg1_embedding, seg2_embedding)
 
         # Gain calculation remains the same, but now uses normalized distances
-        semantic_gain = seg1_seg2_dist - 0.5 * (seg1_parent_dist + seg2_parent_dist)
+        # semantic_gain = seg1_seg2_dist - 0.5 * (seg1_parent_dist + seg2_parent_dist)
+        semantic_gain = seg1_seg2_dist
 
         return semantic_gain, {
             "seg1_parent_dist": seg1_parent_dist,
