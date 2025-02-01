@@ -152,7 +152,7 @@ if model_type == "deberta":
 else:
     config = AutoConfig.from_pretrained(
         model_name,
-        output_hidden_states=True,  # Enable hidden states output
+        output_hidden_states=False,  
         problem_type="multi_label_classification",
         num_labels=num_labels,
     )
@@ -302,32 +302,56 @@ for metric, value in test_results.items():
 print(f"\nBest model saved to {working_dir}/best_model")
 
 
-test_dataloader = DataLoader(tokenized_test, batch_size=32, shuffle=False)
+# For final test evaluation, create a new model instance with hidden states enabled
+print("\nLoading best model for test evaluation...")
+if model_type == "deberta":
+    config = DebertaV2Config.from_pretrained(f"{working_dir}/best_model")
+    config.output_hidden_states = True
+    model = DebertaV2ForSequenceClassification.from_pretrained(
+        f"{working_dir}/best_model",
+        config=config
+    )
+else:
+    config = AutoConfig.from_pretrained(f"{working_dir}/best_model")
+    config.output_hidden_states = True
+    model = AutoModelForSequenceClassification.from_pretrained(
+        f"{working_dir}/best_model",
+        config=config
+    )
+
+model = model.to("cuda")
+model.eval()
+
+# Process test data in smaller batches
+test_dataloader = DataLoader(tokenized_test, batch_size=8, shuffle=False)  # Reduced batch size
 all_predictions = []
 all_labels = []
 all_embeddings = []
 
-model.eval()
 with torch.no_grad():
     for batch in test_dataloader:
-        outputs = model(**{k: v.to(model.device) for k, v in batch.items()})
-
-        # Get predictions
+        # Move batch to GPU
+        batch = {k: v.to(model.device) for k, v in batch.items()}
+        
+        # Get model outputs
+        outputs = model(**batch)
+        
+        # Process predictions
         predictions = torch.sigmoid(outputs.logits).cpu().numpy().tolist()
         all_predictions.extend(predictions)
         all_labels.extend(batch["labels"].cpu().numpy().tolist())
-
-        # Get embeddings (last hidden state)
-        # Using mean pooling over sequence length
+        
+        # Process embeddings
         embeddings = outputs.hidden_states[-1].cpu()  # Get last hidden state
-        # Mean pooling over sequence length (excluding padding)
         attention_mask = batch["attention_mask"].cpu().unsqueeze(-1)
-        embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(
-            dim=1
-        )
-        # Convert to regular Python floats
+        embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(dim=1)
         embeddings = embeddings.numpy().tolist()
         all_embeddings.extend(embeddings)
+        
+        # Clear memory
+        del outputs
+        del embeddings
+        torch.cuda.empty_cache()
 
 test_pred_probs = all_predictions
 test_true_labels = all_labels
