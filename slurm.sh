@@ -34,4 +34,4 @@ fi
 mkdir -p slurm-logs
 
 # Run the Python script using srun
-srun python 1_train.py "$MODEL" "$DATASET"
+srun python 1b_1f_train.py "$MODEL" "$DATASET"
