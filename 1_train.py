@@ -17,6 +17,7 @@ from transformers import (
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
+    AutoConfig,
 )
 
 from torch.utils.data import DataLoader
@@ -149,11 +150,15 @@ model_name = models[model_type]
 if model_type == "deberta":
     model = create_extended_deberta_multilabel(model_name, num_labels)
 else:
-    model = AutoModelForSequenceClassification.from_pretrained(
+    config = AutoConfig.from_pretrained(
         model_name,
+        output_hidden_states=True,  # Enable hidden states output
         problem_type="multi_label_classification",
         num_labels=num_labels,
-        # torch_dtype=torch.float16 if model_type == "modernbert" else torch.bfloat16,
+    )
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        config=config,
     )
 
 model = model.to("cuda")
@@ -300,24 +305,36 @@ print(f"\nBest model saved to {working_dir}/best_model")
 test_dataloader = DataLoader(tokenized_test, batch_size=32, shuffle=False)
 all_predictions = []
 all_labels = []
+all_embeddings = []
 
 model.eval()
 with torch.no_grad():
     for batch in test_dataloader:
         outputs = model(**{k: v.to(model.device) for k, v in batch.items()})
-        all_predictions.extend(torch.sigmoid(outputs.logits).cpu().numpy().tolist())
+
+        # Get predictions
+        predictions = torch.sigmoid(outputs.logits).cpu().numpy().tolist()
+        all_predictions.extend(predictions)
         all_labels.extend(batch["labels"].cpu().numpy().tolist())
+
+        # Get embeddings (last hidden state)
+        # Using mean pooling over sequence length
+        embeddings = outputs.hidden_states[-1].cpu()  # Get last hidden state
+        # Mean pooling over sequence length (excluding padding)
+        attention_mask = batch["attention_mask"].cpu().unsqueeze(-1)
+        embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(
+            dim=1
+        )
+        # Convert to regular Python floats
+        embeddings = embeddings.numpy().tolist()
+        all_embeddings.extend(embeddings)
 
 test_pred_probs = all_predictions
 test_true_labels = all_labels
+test_texts = [example["text"] for example in test_data]
+test_labels = [" ".join(example["labels"]) for example in test_data]
 
-test_texts = [example["text"] for example in test_data]  # Get original texts
-test_labels = [
-    " ".join(example["labels"]) for example in test_data
-]  # Get original labels
-
-
-# Save as JSON
+# Save predictions
 with open(f"{working_dir}/test_predictions.jsonl", "w", encoding="utf-8") as f:
     for probs, labels, text, labels_str in zip(
         test_pred_probs, test_true_labels, test_texts, test_labels
@@ -328,6 +345,19 @@ with open(f"{working_dir}/test_predictions.jsonl", "w", encoding="utf-8") as f:
                 "labels": labels,
                 "text": text,
                 "labels_str": labels_str,
+            },
+            f,
+            ensure_ascii=False,
+        )
+        f.write("\n")
+
+# Save embeddings separately (maintaining same order)
+with open(f"{working_dir}/test_embeddings.jsonl", "w", encoding="utf-8") as f:
+    for embedding, text in zip(all_embeddings, test_texts):
+        json.dump(
+            {
+                "embedding": embedding,
+                "text": text,  # Including text as reference to ensure order matching
             },
             f,
             ensure_ascii=False,
