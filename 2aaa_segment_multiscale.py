@@ -14,7 +14,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
 @dataclass
 class MultiScaleConfig:
-    max_length: int = 4096
+    max_length: int = 2048
     min_sentences: int = 3
     classification_threshold: float = 0.4
     min_register_diff: float = 0.15
@@ -250,11 +250,29 @@ class MultiScaleSegmenter:
         for sent in sentences:
             # Tokenize just this sentence and move to cuda
             sent_tokens = self.tokenizer(sent, return_tensors="pt").input_ids[0].cuda()
+            span_found = False
             # Find these tokens in the full document tokens
             for i in range(len(self.tokens) - len(sent_tokens) + 1):
                 if torch.equal(self.tokens[i : i + len(sent_tokens)], sent_tokens):
                     sent_spans.append((i, i + len(sent_tokens)))
+                    span_found = True
                     break
+            if not span_found:
+                # If we can't find exact token match, approximate using position
+                if curr_pos >= len(self.tokens):
+                    # If we're beyond document length, use last possible position
+                    end_pos = len(self.tokens)
+                    start_pos = max(0, end_pos - len(sent_tokens))
+                else:
+                    # Otherwise use current position
+                    start_pos = curr_pos
+                    end_pos = min(len(self.tokens), curr_pos + len(sent_tokens))
+                sent_spans.append((start_pos, end_pos))
+            curr_pos = sent_spans[-1][1]  # Update position for next sentence
+
+        # If no valid spans found, return single segment with whole document
+        if not sent_spans:
+            return [(text, self.get_register_probs())]
 
         segments = self.segment_recursive(text, sentences, sent_spans)
 
