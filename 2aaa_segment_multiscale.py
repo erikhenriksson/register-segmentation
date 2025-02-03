@@ -22,7 +22,7 @@ class MultiScaleConfig:
 
     def __post_init__(self):
         if self.scale_weights is None:
-            self.scale_weights = {"individual": 0.4, "pairs": 0.3, "whole": 0.3}
+            self.scale_weights = {"individual": 1 / 3, "pairs": 1 / 3, "whole": 1 / 3}
 
 
 class MultiScaleSegmenter:
@@ -121,17 +121,32 @@ class MultiScaleSegmenter:
         self, probs1: np.ndarray, probs2: np.ndarray
     ) -> float:
         """Compute register distinctness between two probability vectors."""
+        # Get registers above threshold
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
 
-        total_diff = 0
-        for reg_idx in range(len(probs1)):
-            if reg_idx in regs1 and reg_idx not in regs2:
-                total_diff += abs(probs1[reg_idx] - probs2[reg_idx])
-            elif reg_idx not in regs1 and reg_idx in regs2:
-                total_diff += abs(probs1[reg_idx] - probs2[reg_idx])
+        # Both segments must have at least one register
+        if not (regs1 and regs2):
+            return 0.0
 
-        return total_diff
+        # Get max probabilities
+        max_prob1 = max(probs1)
+        max_prob2 = max(probs2)
+
+        # Check if segments have meaningfully different registers
+        if regs1 == regs2:
+            return 0.0
+
+        # Calculate probability differences only for differing registers
+        diff_score = 0.0
+        diff_registers = (regs1 - regs2) | (regs2 - regs1)  # Symmetric difference
+        for reg_idx in diff_registers:
+            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+
+        # Weight by the strength of the dominant registers
+        distinctness = diff_score * (max_prob1 + max_prob2) / 2
+
+        return distinctness
 
     def evaluate_split_individual(
         self,
@@ -226,16 +241,6 @@ class MultiScaleSegmenter:
         best_score = -float("inf")
         best_split = None
 
-        # Adjust weights based on segment length
-        total_len = len(sentences)
-        weights = self.config.scale_weights.copy()
-        if total_len > 20:
-            weights["whole"] *= 1.5
-            weights["individual"] *= 0.7
-        elif total_len < 8:
-            weights["individual"] *= 1.5
-            weights["whole"] *= 0.7
-
         for i in range(
             self.config.min_sentences, len(sentences) - self.config.min_sentences + 1
         ):
@@ -255,9 +260,9 @@ class MultiScaleSegmenter:
             )
 
             total_score = (
-                weights["individual"] * score_individual
-                + weights["pairs"] * score_pairs
-                + weights["whole"] * score_whole
+                self.config.scale_weights["individual"] * score_individual
+                + self.config.scale_weights["pairs"] * score_pairs
+                + self.config.scale_weights["whole"] * score_whole
             )
 
             if total_score > best_score:
