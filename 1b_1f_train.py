@@ -45,7 +45,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
-def create_extended_deberta_multilabel(model_name, num_labels, max_length=2048):
+def create_extended_deberta_multilabel(model_name, num_labels, max_length=4096):
     config = DebertaV2Config.from_pretrained(model_name)
     config.update(
         {
@@ -56,7 +56,7 @@ def create_extended_deberta_multilabel(model_name, num_labels, max_length=2048):
             "num_labels": num_labels,
             "problem_type": "multi_label_classification",
             # Add torch dtype
-            "dtype": torch.bfloat16,
+            #"dtype": torch.bfloat16,
         }
     )
 
@@ -72,14 +72,6 @@ class FocalLoss(nn.Module):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
-
-    """
-    def forward(self, inputs, targets):
-        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
-        pt = torch.exp(-bce_loss)
-        focal_loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
-        return focal_loss.mean()
-    """
 
     def forward(self, pred, target):
         sigmoid_pred = torch.sigmoid(pred)
@@ -152,7 +144,7 @@ if model_type == "deberta":
 else:
     config = AutoConfig.from_pretrained(
         model_name,
-        output_hidden_states=False,  
+        output_hidden_states=False,
         problem_type="multi_label_classification",
         num_labels=num_labels,
     )
@@ -172,7 +164,7 @@ else:
 
 def tokenize_function(examples):
     return tokenizer(
-        examples["text"], padding="max_length", truncation=True, max_length=2048
+        examples["text"], padding="max_length", truncation=True, max_length=8192
     )
 
 
@@ -250,7 +242,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8,
     per_device_eval_batch_size=32,
-    num_train_epochs=20,
+    num_train_epochs=5,
     load_best_model_at_end=True,
     metric_for_best_model="micro_f1",
     greater_is_better=True,
@@ -258,7 +250,7 @@ training_args = TrainingArguments(
     save_steps=500,
     save_total_limit=1,
     max_grad_norm=1.0,
-    learning_rate=5e-5,
+    learning_rate=3e-5,
     warmup_ratio=0.05,
     weight_decay=0.01,
     tf32=True,
@@ -274,7 +266,7 @@ trainer = FocalLossTrainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_dev,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=5)],
+    # callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
 
 # Train
@@ -308,22 +300,22 @@ if model_type == "deberta":
     config = DebertaV2Config.from_pretrained(f"{working_dir}/best_model")
     config.output_hidden_states = True
     model = DebertaV2ForSequenceClassification.from_pretrained(
-        f"{working_dir}/best_model",
-        config=config
+        f"{working_dir}/best_model", config=config
     )
 else:
     config = AutoConfig.from_pretrained(f"{working_dir}/best_model")
     config.output_hidden_states = True
     model = AutoModelForSequenceClassification.from_pretrained(
-        f"{working_dir}/best_model",
-        config=config
+        f"{working_dir}/best_model", config=config
     )
 
 model = model.to("cuda")
 model.eval()
 
 # Process test data in smaller batches
-test_dataloader = DataLoader(tokenized_test, batch_size=8, shuffle=False)  # Reduced batch size
+test_dataloader = DataLoader(
+    tokenized_test, batch_size=8, shuffle=False
+)  # Reduced batch size
 all_predictions = []
 all_labels = []
 all_embeddings = []
@@ -332,22 +324,24 @@ with torch.no_grad():
     for batch in test_dataloader:
         # Move batch to GPU
         batch = {k: v.to(model.device) for k, v in batch.items()}
-        
+
         # Get model outputs
         outputs = model(**batch)
-        
+
         # Process predictions
         predictions = torch.sigmoid(outputs.logits).cpu().numpy().tolist()
         all_predictions.extend(predictions)
         all_labels.extend(batch["labels"].cpu().numpy().tolist())
-        
+
         # Process embeddings
         embeddings = outputs.hidden_states[-1].cpu()  # Get last hidden state
         attention_mask = batch["attention_mask"].cpu().unsqueeze(-1)
-        embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(dim=1)
+        embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(
+            dim=1
+        )
         embeddings = embeddings.numpy().tolist()
         all_embeddings.extend(embeddings)
-        
+
         # Clear memory
         del outputs
         del embeddings
