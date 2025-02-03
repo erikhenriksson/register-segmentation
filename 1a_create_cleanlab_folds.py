@@ -25,6 +25,17 @@ labels = [k for k in labels_structure.keys()] + [
     item for row in labels_structure.values() for item in row
 ]
 
+labels = [
+    "LY",
+    "SP",
+    "ID",
+    "NA",
+    "HI",
+    "IN",
+    "OP",
+    "IP",
+]
+
 
 def convert_to_label_ids(labels_str):
     label_array = np.zeros(len(labels))
