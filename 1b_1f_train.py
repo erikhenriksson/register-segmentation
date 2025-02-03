@@ -20,7 +20,7 @@ from transformers import (
     AutoConfig,
 )
 
-TRAIN = False
+TRAIN = True
 
 from torch.utils.data import DataLoader
 from labels import labels, convert_to_label_ids
@@ -275,9 +275,9 @@ trainer = FocalLossTrainer(
 if TRAIN:
     trainer.train()
 
-# Save model and tokenizer
-trainer.save_model(f"{working_dir}/best_model")
-tokenizer.save_pretrained(f"{working_dir}/best_model")
+    # Save model and tokenizer
+    trainer.save_model(f"{working_dir}/best_model")
+    tokenizer.save_pretrained(f"{working_dir}/best_model")
 
 # Evaluate on test set
 print("\nFinal Test Set Evaluation:")
