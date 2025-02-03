@@ -16,7 +16,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
-    classification_threshold: float = 0.4
+    classification_threshold: float = 0.35  # Changed to match working code
     min_register_diff: float = 0.15
     scale_weights: Dict[str, float] = None
 
@@ -27,17 +27,43 @@ class MultiScaleConfig:
 
 class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_path, output_hidden_states=True
-        )
-        self.classifier = model.classifier.to("cuda")
-        self.model = model.to("cuda")
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,  # Use float16 like working code
+            output_hidden_states=True,
+        ).to("cuda")
+        self.model.eval()  # Set model to eval mode
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.config = config or MultiScaleConfig()
+
         # Cache for token representations
         self.token_embeddings = None
         self.attention_mask = None
         self.tokens = None
+
+    def safe_mean_pooling(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Safe mean pooling that handles edge cases to prevent infinite values"""
+        epsilon = 1e-10
+        attention_mask = attention_mask.unsqueeze(-1)
+        mask_sum = attention_mask.sum(dim=0) + epsilon
+
+        # Ensure the mask sum is at least epsilon to prevent explosion
+        mask_sum = torch.maximum(
+            mask_sum,
+            torch.tensor(epsilon, device=mask_sum.device, dtype=hidden_states.dtype),
+        )
+
+        # Compute weighted sum and divide by mask sum
+        weighted_sum = (hidden_states * attention_mask).sum(dim=0)
+        pooled = weighted_sum / mask_sum
+
+        # Clip any extreme values
+        pooled = torch.clamp(pooled, min=-100.0, max=100.0)
+
+        # Ensure output is in float16
+        return pooled.to(dtype=torch.float16)
 
     def prepare_document(self, text: str):
         """Run model once for whole document and cache results."""
@@ -46,13 +72,12 @@ class MultiScaleSegmenter:
             truncation=True,
             max_length=self.config.max_length,
             return_tensors="pt",
+            add_special_tokens=True,
         ).to("cuda")
 
         self.tokens = inputs.input_ids[0]
         outputs = self.model(**inputs)
-        self.token_embeddings = outputs.hidden_states[-1][
-            0
-        ].detach()  # Remove batch dim
+        self.token_embeddings = outputs.hidden_states[-1][0].detach()
         self.attention_mask = inputs.attention_mask[0]
 
     def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
@@ -60,11 +85,10 @@ class MultiScaleSegmenter:
         if self.token_embeddings is None:
             raise ValueError("Must call prepare_document before get_span_embedding")
 
-        # Mean pool the token embeddings for the span
+        # Use safe mean pooling on the span
         span_embeddings = self.token_embeddings[start_token:end_token]
         span_mask = self.attention_mask[start_token:end_token]
-        masked_embeddings = span_embeddings[span_mask.bool()]
-        return torch.mean(masked_embeddings, dim=0)
+        return self.safe_mean_pooling(span_embeddings, span_mask)
 
     def get_register_probs(
         self, text: str = None, start_token: int = None, end_token: int = None
@@ -82,10 +106,16 @@ class MultiScaleSegmenter:
             start_token = 0
             end_token = len(self.token_embeddings)
 
-        # Get span embedding and pass through classifier
+        # Get span embedding
         span_embedding = self.get_span_embedding(start_token, end_token)
-        logits = self.classifier(span_embedding.unsqueeze(0))
-        return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+
+        # Important: Use model.head before classifier like in working code
+        with torch.no_grad():
+            hidden = self.model.head(span_embedding.unsqueeze(0))
+            logits = self.model.classifier(hidden)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+
+        return probs
 
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray
