@@ -42,7 +42,8 @@ class TextSegmenter:
             )
         return text
 
-    def get_embedding(self, text: str) -> np.ndarray:
+    def get_model_outputs(self, text: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Returns (probabilities, embedding) tuple from a single model forward pass"""
         inputs = self.tokenizer(
             text,
             truncation=True,
@@ -50,24 +51,19 @@ class TextSegmenter:
             return_tensors="pt",
         )
         outputs = self.model(**inputs)
+
+        # Get probabilities
+        probs = 1 / (1 + np.exp(-outputs.logits.detach().numpy()[0]))
+
+        # Get embedding
         last_hidden_state = outputs.hidden_states[-1].detach().numpy()
         attention_mask = inputs["attention_mask"].numpy()
-        mean_pooled = (
+        embedding = (
             np.sum(last_hidden_state * attention_mask[..., None], axis=1)
             / np.sum(attention_mask, axis=1)[..., None]
         )
-        return mean_pooled[0]
 
-    def get_register_probs(self, text: str) -> np.ndarray:
-        inputs = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.config.max_length,
-            return_tensors="pt",
-        )
-        outputs = self.model(**inputs)
-        probs = 1 / (1 + np.exp(-outputs.logits.detach().numpy()[0]))
-        return probs
+        return probs, embedding[0]
 
     def compute_register_distance(
         self, probs1: np.ndarray, probs2: np.ndarray
@@ -90,7 +86,8 @@ class TextSegmenter:
             self.config.window_sentences // 2,
         ):
             window_text = " ".join(sentences[i : i + self.config.window_sentences])
-            window_probs.append(self.get_register_probs(window_text))
+            probs, _ = self.get_model_outputs(window_text)
+            window_probs.append(probs)
 
         distances = []
         for i in range(len(window_probs)):
@@ -109,7 +106,8 @@ class TextSegmenter:
             0, len(sentences) - self.config.window_sentences + 1, self.config.stride
         ):
             window_text = " ".join(sentences[i : i + self.config.window_sentences])
-            window_probs.append(self.get_register_probs(window_text))
+            probs, _ = self.get_model_outputs(window_text)
+            window_probs.append(probs)
             positions.append(i)
 
         depth_scores = []
@@ -137,8 +135,7 @@ class TextSegmenter:
         sentences = sent_tokenize(text)
 
         if len(sentences) <= self.config.min_sentences:
-            probs = self.get_register_probs(text)
-            embedding = self.get_embedding(text)
+            probs, embedding = self.get_model_outputs(text)
             return [(text, probs, embedding)]
 
         depth_scores = self.get_depth_scores(sentences)
@@ -161,14 +158,12 @@ class TextSegmenter:
         for boundary in sorted(boundaries):
             if boundary - start >= self.config.min_sentences:
                 segment_text = " ".join(sentences[start:boundary])
-                probs = self.get_register_probs(segment_text)
-                embedding = self.get_embedding(segment_text)
+                probs, embedding = self.get_model_outputs(segment_text)
                 segments.append((segment_text, probs, embedding))
                 start = boundary
 
         final_segment = " ".join(sentences[start:])
-        final_probs = self.get_register_probs(final_segment)
-        final_embedding = self.get_embedding(final_segment)
+        final_probs, final_embedding = self.get_model_outputs(final_segment)
         segments.append((final_segment, final_probs, final_embedding))
 
         return segments
@@ -233,8 +228,7 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
-            full_probs = segmenter.get_register_probs(text)
-            text_embedding = segmenter.get_embedding(text)
+            full_probs, text_embedding = segmenter.get_model_outputs(text)
             segments = segmenter.segment_text(text)
 
             result = {
