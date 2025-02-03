@@ -17,7 +17,7 @@ class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
     classification_threshold: float = 0.30  # Changed to match working code
-    min_register_diff: float = 0.01
+    min_register_diff: float = 0.0
     scale_weights: Dict[str, float] = None
 
     def __post_init__(self):
@@ -163,7 +163,7 @@ class MultiScaleSegmenter:
         if regs1 == parent_regs and regs2 == parent_regs:
             return 0
 
-        # return min(max_prob1 - max_prob_parent, max_prob1 - max_prob_parent)
+        return min(max_prob1 - max_prob_parent, max_prob1 - max_prob_parent)
 
         # Calculate probability differences only for differing registers
         diff_score = 0.0
