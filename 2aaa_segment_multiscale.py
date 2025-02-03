@@ -252,7 +252,6 @@ class MultiScaleSegmenter:
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
         """Main entry point for text segmentation."""
-        text = self.truncate_text(text)
 
         # Get sentence boundaries with character offsets
         sentences = []
@@ -343,6 +342,7 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
+            text = segmenter.truncate_text(text)
             full_probs = segmenter.get_register_probs(text)
             segments = segmenter.segment_text(text)
 
