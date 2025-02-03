@@ -53,7 +53,7 @@ class TextSegmenter:
         outputs = self.model(**inputs)
 
         # Get probabilities
-        probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
+        probs = torch.sigmoid(outputs.logits).detach().cpu().numpy()[0]
 
         # Get embedding
         last_hidden_state = outputs.hidden_states[-1].detach().cpu().numpy()
