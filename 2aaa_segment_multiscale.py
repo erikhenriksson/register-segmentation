@@ -16,8 +16,8 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
-    classification_threshold: float = 0.4
-    min_register_diff: float = 0.15
+    classification_threshold: float = 0.45
+    min_register_diff: float = 0.25
     scale_weights: Dict[str, float] = None
 
     def __post_init__(self):
