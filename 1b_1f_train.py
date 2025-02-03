@@ -56,7 +56,7 @@ def create_extended_deberta_multilabel(model_name, num_labels, max_length=4096):
             "num_labels": num_labels,
             "problem_type": "multi_label_classification",
             # Add torch dtype
-            #"dtype": torch.bfloat16,
+            # "dtype": torch.bfloat16,
         }
     )
 
@@ -248,7 +248,7 @@ training_args = TrainingArguments(
     greater_is_better=True,
     save_strategy="steps",
     save_steps=500,
-    save_total_limit=1,
+    save_total_limit=2,
     max_grad_norm=1.0,
     learning_rate=3e-5,
     warmup_ratio=0.05,
@@ -266,7 +266,7 @@ trainer = FocalLossTrainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_dev,
     compute_metrics=compute_metrics,
-    # callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
 
 # Train
