@@ -134,8 +134,7 @@ class MultiScaleSegmenter:
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
-        """Compute register distinctness between two probability vectors."""
-        # Get registers above threshold
+        # Get registers above threshold for each segment and parent.
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
         parent_regs = set(
@@ -146,35 +145,33 @@ class MultiScaleSegmenter:
         if not (regs1 and regs2):
             return 0.0
 
-        # Get max probabilities
+        # Compute max probabilities for segments and parent.
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
         max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
 
-        # At least one segment must improve over parent probability
+        # Ensure that at least one segment improves over the parent.
         if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
             return 0
 
-        # Check if segments have meaningfully different registers
+        # Alternative 1: Differences between segments.
         if regs1 == regs2:
-            return 0.0
+            seg_diff = 0.0
+        else:
+            diff_score = 0.0
+            diff_registers = (regs1 - regs2) | (regs2 - regs1)
+            for reg_idx in diff_registers:
+                diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+            seg_diff = diff_score * (max_prob1 + max_prob2) / 2
 
-        # Reject if both segments have exactly same registers as parent
-        if regs1 == parent_regs and regs2 == parent_regs:
-            return 0
+        # Alternative 2: Improvement over parent.
+        parent_diff = min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
 
-        return min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
+        # Combine both perspectives.
+        lambda_weight = 0.5  # Adjust this hyperparameter as needed.
+        combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
 
-        # Calculate probability differences only for differing registers
-        diff_score = 0.0
-        diff_registers = (regs1 - regs2) | (regs2 - regs1)  # Symmetric difference
-        for reg_idx in diff_registers:
-            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
-
-        # Weight by the strength of the dominant registers
-        distinctness = diff_score * (max_prob1 + max_prob2) / 2
-
-        return distinctness
+        return combined_score
 
     def evaluate_split_individual(
         self,
