@@ -131,8 +131,187 @@ class MultiScaleSegmenter:
 
         return probs
 
-    # (The rest of the evaluation functions remain unchanged...)
-    # ...
+    def compute_register_distinctness(
+        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
+    ) -> float:
+        """Compute register distinctness between two probability vectors."""
+        # Get registers above threshold
+        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
+        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = set(
+            np.where(parent_probs >= self.config.classification_threshold)[0]
+        )
+
+        # Both segments must have at least one register
+        if not (regs1 and regs2):
+            return 0.0
+
+        # Get max probabilities
+        max_prob1 = max(probs1)
+        max_prob2 = max(probs2)
+        max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
+
+        # At least one segment must improve over parent probability
+        if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
+            return 0
+
+        # Check if segments have meaningfully different registers
+        if regs1 == regs2:
+            return 0.0
+
+        # Reject if both segments have exactly same registers as parent
+        if regs1 == parent_regs and regs2 == parent_regs:
+            return 0
+
+        # return min(max_prob1 - max_prob_parent, max_prob1 - max_prob_parent)
+
+        # Calculate probability differences only for differing registers
+        diff_score = 0.0
+        diff_registers = (regs1 - regs2) | (regs2 - regs1)  # Symmetric difference
+        for reg_idx in diff_registers:
+            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+
+        # Weight by the strength of the dominant registers
+        distinctness = diff_score * (max_prob1 + max_prob2) / 2
+
+        return distinctness
+
+    def evaluate_split_individual(
+        self,
+        text: str,
+        left_sents: List[str],
+        right_sents: List[str],
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
+    ) -> float:
+        """Evaluate split at individual sentence level using cached embeddings."""
+        # Get predictions for each sentence using cached embeddings
+        left_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in left_spans
+        ]
+        right_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in right_spans
+        ]
+        parent_probs = self.get_register_probs(
+            start_token=left_spans[0][0], end_token=right_spans[-1][1]
+        )
+
+        scores = []
+        for l_prob in left_probs:
+            for r_prob in right_probs:
+                scores.append(
+                    self.compute_register_distinctness(l_prob, r_prob, parent_probs)
+                )
+
+        return np.mean(scores) if scores else 0.0
+
+    def evaluate_split_pairs(
+        self,
+        text: str,
+        left_sents: List[str],
+        right_sents: List[str],
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
+    ) -> float:
+        """Evaluate split using pairs of sentences."""
+        if len(left_spans) < 2 or len(right_spans) < 2:
+            return 0.0
+
+        # Create pairs by combining token spans
+        left_pair_spans = [
+            (left_spans[i][0], left_spans[i + 1][1])
+            for i in range(0, len(left_spans) - 1, 2)
+        ]
+        right_pair_spans = [
+            (right_spans[i][0], right_spans[i + 1][1])
+            for i in range(0, len(right_spans) - 1, 2)
+        ]
+
+        # Get predictions for each pair using cached embeddings
+        left_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in left_pair_spans
+        ]
+        right_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in right_pair_spans
+        ]
+
+        parent_probs = self.get_register_probs(
+            start_token=left_spans[0][0], end_token=right_spans[-1][1]
+        )
+
+        scores = []
+        for l_prob in left_probs:
+            for r_prob in right_probs:
+                scores.append(
+                    self.compute_register_distinctness(l_prob, r_prob, parent_probs)
+                )
+
+        return np.mean(scores) if scores else 0.0
+
+    def evaluate_split_whole(
+        self,
+        text: str,
+        left_sents: List[str],
+        right_sents: List[str],
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
+    ) -> float:
+        """Evaluate split comparing whole segments using cached embeddings."""
+        left_start = left_spans[0][0]
+        left_end = left_spans[-1][1]
+        right_start = right_spans[0][0]
+        right_end = right_spans[-1][1]
+
+        left_probs = self.get_register_probs(start_token=left_start, end_token=left_end)
+        right_probs = self.get_register_probs(
+            start_token=right_start, end_token=right_end
+        )
+        parent_probs = self.get_register_probs(
+            start_token=left_start, end_token=right_end
+        )
+
+        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
+
+    def find_best_split(
+        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+    ) -> Tuple[int, float]:
+        """Find best split point using multi-scale analysis."""
+        best_score = 0
+        best_split = None
+
+        for i in range(
+            self.config.min_sentences, len(sentences) - self.config.min_sentences + 1
+        ):
+            left_sents = sentences[:i]
+            right_sents = sentences[i:]
+            left_spans = sent_spans[:i]
+            right_spans = sent_spans[i:]
+
+            score_individual = self.evaluate_split_individual(
+                text, left_sents, right_sents, left_spans, right_spans
+            )
+            score_pairs = self.evaluate_split_pairs(
+                text, left_sents, right_sents, left_spans, right_spans
+            )
+            score_whole = self.evaluate_split_whole(
+                text, left_sents, right_sents, left_spans, right_spans
+            )
+
+            total_score = (
+                self.config.scale_weights["individual"] * score_individual
+                + self.config.scale_weights["pairs"] * score_pairs
+                + self.config.scale_weights["whole"] * score_whole
+            )
+
+            if total_score > best_score:
+                best_score = total_score
+                best_split = i
+
+        return best_split, best_score
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
         """Main entry point for text segmentation."""
