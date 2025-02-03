@@ -87,10 +87,6 @@ class MultiScaleSegmenter:
         logits = self.classifier(span_embedding.unsqueeze(0))
         return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
 
-        # Pass through classification head
-        logits = self.classifier(span_embedding.unsqueeze(0))
-        return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
-
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray
     ) -> float:
@@ -108,11 +104,23 @@ class MultiScaleSegmenter:
         return total_diff
 
     def evaluate_split_individual(
-        self, left_sents: List[str], right_sents: List[str]
+        self,
+        text: str,
+        left_sents: List[str],
+        right_sents: List[str],
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
     ) -> float:
-        """Evaluate split at individual sentence level."""
-        left_probs = [self.get_register_probs(sent) for sent in left_sents]
-        right_probs = [self.get_register_probs(sent) for sent in right_sents]
+        """Evaluate split at individual sentence level using cached embeddings."""
+        # Get predictions for each sentence using cached embeddings
+        left_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in left_spans
+        ]
+        right_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in right_spans
+        ]
 
         scores = []
         for l_prob in left_probs:
@@ -122,21 +130,36 @@ class MultiScaleSegmenter:
         return np.mean(scores) if scores else 0.0
 
     def evaluate_split_pairs(
-        self, left_sents: List[str], right_sents: List[str]
+        self,
+        text: str,
+        left_sents: List[str],
+        right_sents: List[str],
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
     ) -> float:
-        """Evaluate split using sentence pairs."""
-        left_pairs = [
-            " ".join(left_sents[i : i + 2]) for i in range(0, len(left_sents) - 1, 2)
-        ]
-        right_pairs = [
-            " ".join(right_sents[i : i + 2]) for i in range(0, len(right_sents) - 1, 2)
-        ]
-
-        if not left_pairs or not right_pairs:
+        """Evaluate split using pairs of sentences."""
+        if len(left_spans) < 2 or len(right_spans) < 2:
             return 0.0
 
-        left_probs = [self.get_register_probs(pair) for pair in left_pairs]
-        right_probs = [self.get_register_probs(pair) for pair in right_pairs]
+        # Create pairs by combining token spans
+        left_pair_spans = [
+            (left_spans[i][0], left_spans[i + 1][1])
+            for i in range(0, len(left_spans) - 1, 2)
+        ]
+        right_pair_spans = [
+            (right_spans[i][0], right_spans[i + 1][1])
+            for i in range(0, len(right_spans) - 1, 2)
+        ]
+
+        # Get predictions for each pair using cached embeddings
+        left_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in left_pair_spans
+        ]
+        right_probs = [
+            self.get_register_probs(start_token=span[0], end_token=span[1])
+            for span in right_pair_spans
+        ]
 
         scores = []
         for l_prob in left_probs:
@@ -146,18 +169,29 @@ class MultiScaleSegmenter:
         return np.mean(scores) if scores else 0.0
 
     def evaluate_split_whole(
-        self, left_sents: List[str], right_sents: List[str]
+        self,
+        text: str,
+        left_sents: List[str],
+        right_sents: List[str],
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
     ) -> float:
-        """Evaluate split comparing whole segments."""
-        left_text = " ".join(left_sents)
-        right_text = " ".join(right_sents)
+        """Evaluate split comparing whole segments using cached embeddings."""
+        left_start = left_spans[0][0]
+        left_end = left_spans[-1][1]
+        right_start = right_spans[0][0]
+        right_end = right_spans[-1][1]
 
-        left_probs = self.get_register_probs(left_text)
-        right_probs = self.get_register_probs(right_text)
+        left_probs = self.get_register_probs(start_token=left_start, end_token=left_end)
+        right_probs = self.get_register_probs(
+            start_token=right_start, end_token=right_end
+        )
 
         return self.compute_register_distinctness(left_probs, right_probs)
 
-    def find_best_split(self, sentences: List[str]) -> Tuple[int, float]:
+    def find_best_split(
+        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+    ) -> Tuple[int, float]:
         """Find best split point using multi-scale analysis."""
         best_score = -float("inf")
         best_split = None
@@ -177,10 +211,18 @@ class MultiScaleSegmenter:
         ):
             left_sents = sentences[:i]
             right_sents = sentences[i:]
+            left_spans = sent_spans[:i]
+            right_spans = sent_spans[i:]
 
-            score_individual = self.evaluate_split_individual(left_sents, right_sents)
-            score_pairs = self.evaluate_split_pairs(left_sents, right_sents)
-            score_whole = self.evaluate_split_whole(left_sents, right_sents)
+            score_individual = self.evaluate_split_individual(
+                text, left_sents, right_sents, left_spans, right_spans
+            )
+            score_pairs = self.evaluate_split_pairs(
+                text, left_sents, right_sents, left_spans, right_spans
+            )
+            score_whole = self.evaluate_split_whole(
+                text, left_sents, right_sents, left_spans, right_spans
+            )
 
             total_score = (
                 weights["individual"] * score_individual
@@ -194,23 +236,65 @@ class MultiScaleSegmenter:
 
         return best_split, best_score
 
+    def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
+        """Main entry point for text segmentation."""
+        text = self.truncate_text(text)
+        sentences = sent_tokenize(text)
+
+        # Prepare document once and get token indices for each sentence
+        self.prepare_document(text)
+
+        # Get token spans for each sentence
+        sent_spans = []
+        curr_pos = 0
+        for sent in sentences:
+            # Tokenize just this sentence
+            sent_tokens = self.tokenizer(sent, return_tensors="pt").input_ids[0]
+            # Find these tokens in the full document tokens
+            for i in range(len(self.tokens) - len(sent_tokens) + 1):
+                if torch.equal(self.tokens[i : i + len(sent_tokens)], sent_tokens):
+                    sent_spans.append((i, i + len(sent_tokens)))
+                    break
+
+        segments = self.segment_recursive(text, sentences, sent_spans)
+
+        # If only one segment, ensure it matches whole document prediction
+        if len(segments) == 1:
+            segments = [(text, self.get_register_probs())]
+
+        return segments
+
     def segment_recursive(
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
     ) -> List[Tuple[str, np.ndarray]]:
         """Recursively segment text using binary splitting."""
         if len(sentences) < 2 * self.config.min_sentences:
-            start_char = sent_spans[0][0]
-            end_char = sent_spans[-1][1]
-            span_text = text[start_char:end_char]
-            return [(span_text, self.get_register_probs(text, start_char, end_char))]
+            start_token = sent_spans[0][0]
+            end_token = sent_spans[-1][1]
+            span_text = " ".join(sentences)
+            return [
+                (
+                    span_text,
+                    self.get_register_probs(
+                        start_token=start_token, end_token=end_token
+                    ),
+                )
+            ]
 
-        split_idx, score = self.find_best_split(sentences)
+        split_idx, score = self.find_best_split(text, sentences, sent_spans)
 
         if score < self.config.min_register_diff or split_idx is None:
-            start_char = sent_spans[0][0]
-            end_char = sent_spans[-1][1]
-            span_text = text[start_char:end_char]
-            return [(span_text, self.get_register_probs(text, start_char, end_char))]
+            start_token = sent_spans[0][0]
+            end_token = sent_spans[-1][1]
+            span_text = " ".join(sentences)
+            return [
+                (
+                    span_text,
+                    self.get_register_probs(
+                        start_token=start_token, end_token=end_token
+                    ),
+                )
+            ]
 
         left_segments = self.segment_recursive(
             text, sentences[:split_idx], sent_spans[:split_idx]
@@ -221,34 +305,8 @@ class MultiScaleSegmenter:
 
         return left_segments + right_segments
 
-    def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
-        """Main entry point for text segmentation."""
-        text = self.truncate_text(text)
-
-        # Get sentence boundaries with character offsets
-        sentences = []
-        sent_spans = []
-        curr_pos = 0
-
-        for sent in sent_tokenize(text):
-            start = text.find(sent, curr_pos)
-            end = start + len(sent)
-            sentences.append(sent)
-            sent_spans.append((start, end))
-            curr_pos = end
-
-        # Prepare document once
-        self.prepare_document(text)
-
-        segments = self.segment_recursive(text, sentences, sent_spans)
-
-        # If only one segment, make sure it matches whole document prediction
-        if len(segments) == 1:
-            segments = [(text, self.get_register_probs(text))]
-
-        return segments
-
     def truncate_text(self, text: str) -> str:
+        """Truncate text to max_length tokens."""
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
             "input_ids"
         ][0]
@@ -259,7 +317,7 @@ class MultiScaleSegmenter:
         return text
 
     def print_result(self, result: Dict):
-        """Print segmentation results in the same format as original code."""
+        """Print segmentation results."""
         print(f"\nText [{result['id']}]")
         print(f"True label: {result['label']}")
         registers = [
@@ -320,13 +378,19 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
-            full_probs = segmenter.get_register_probs(text)
             segments = segmenter.segment_text(text)
+
+            # If single segment, use its probs for both text_probs and segment probs
+            if len(segments) == 1:
+                text_probs = segments[0][1]
+            else:
+                # Otherwise get full document probs
+                text_probs = segmenter.get_register_probs(text)
 
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": [round(x, 4) for x in full_probs.tolist()],
+                "text_probs": [round(x, 4) for x in text_probs.tolist()],
                 "segments": [
                     {
                         "text": text,
