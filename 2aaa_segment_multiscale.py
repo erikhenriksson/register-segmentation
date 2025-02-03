@@ -14,7 +14,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
 @dataclass
 class MultiScaleConfig:
-    max_length: int = 2048
+    max_length: int = 8192
     min_sentences: int = 3
     classification_threshold: float = 0.4
     min_register_diff: float = 0.15
@@ -105,24 +105,18 @@ class MultiScaleSegmenter:
         self, text: str, start_char: int = None, end_char: int = None
     ) -> np.ndarray:
         """Get register probabilities for a text span."""
-        # First time called - process whole document
         if self.token_embeddings is None:
             self.prepare_document(text)
-            # For whole text, use attention mask to get valid token mean
-            valid_tokens = self.attention_mask.bool()
-            mean_embedding = torch.mean(self.token_embeddings[valid_tokens], dim=0)
-            logits = self.classifier(mean_embedding.unsqueeze(0))
-            return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
 
-        # If no span specified, use entire text the same way as above
+        # If no span specified, use entire text
         if start_char is None or end_char is None:
-            valid_tokens = self.attention_mask.bool()
-            mean_embedding = torch.mean(self.token_embeddings[valid_tokens], dim=0)
-            logits = self.classifier(mean_embedding.unsqueeze(0))
-            return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+            start_char = 0
+            end_char = len(text)
 
-        # For specific spans, mean pool only the relevant tokens
+        # Get span embedding
         span_embedding = self.get_span_embedding(start_char, end_char)
+
+        # Pass through classification head
         logits = self.classifier(span_embedding.unsqueeze(0))
         return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
 
