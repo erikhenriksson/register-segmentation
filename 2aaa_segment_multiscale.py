@@ -16,7 +16,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
-    classification_threshold: float = 0.5  # Increased from 0.4 to be more selective
+    classification_threshold: float = 0.4
     min_register_diff: float = 0.15
     scale_weights: Dict[str, float] = None
 
@@ -28,7 +28,7 @@ class MultiScaleConfig:
 class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
         model = AutoModelForSequenceClassification.from_pretrained(
-            model_path, output_hidden_states=True, torch_dtype=torch.float16
+            model_path, output_hidden_states=True
         )
         self.classifier = model.classifier.to("cuda")
         self.model = model.to("cuda")
