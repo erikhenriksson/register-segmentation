@@ -57,7 +57,7 @@ class TextSegmenter:
 
         # Get embedding
         last_hidden_state = outputs.hidden_states[-1].detach().cpu().numpy()
-        attention_mask = inputs["attention_mask"].numpy()
+        attention_mask = inputs["attention_mask"].cpu().numpy()
         embedding = (
             np.sum(last_hidden_state * attention_mask[..., None], axis=1)
             / np.sum(attention_mask, axis=1)[..., None]
