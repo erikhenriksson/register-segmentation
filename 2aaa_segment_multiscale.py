@@ -14,7 +14,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
 @dataclass
 class MultiScaleConfig:
-    max_length: int = 8192
+    max_length: int = 4096
     min_sentences: int = 3
     classification_threshold: float = 0.4
     min_register_diff: float = 0.15
