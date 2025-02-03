@@ -17,7 +17,7 @@ class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
     classification_threshold: float = 0.35  # Changed to match working code
-    min_register_diff: float = 0.01
+    min_register_diff: float = 0
     scale_weights: Dict[str, float] = None
 
     def __post_init__(self):
@@ -266,7 +266,7 @@ class MultiScaleSegmenter:
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
     ) -> Tuple[int, float]:
         """Find best split point using multi-scale analysis."""
-        best_score = -float("inf")
+        best_score = 0
         best_split = None
 
         for i in range(
