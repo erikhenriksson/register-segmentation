@@ -16,8 +16,8 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
-    classification_threshold: float = 0.5
-    min_register_diff: float = 0.3  # Increased for cosine distance
+    classification_threshold: float = 0.5  # Increased from 0.4 to be more selective
+    min_register_diff: float = 0.15
     scale_weights: Dict[str, float] = None
 
     def __post_init__(self):
@@ -90,12 +90,18 @@ class MultiScaleSegmenter:
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray
     ) -> float:
-        """Compute cosine distance between probability vectors."""
-        cos_sim = np.dot(probs1, probs2) / (
-            np.linalg.norm(probs1) * np.linalg.norm(probs2)
-        )
-        # Convert similarity to distance [0,1]
-        return 1 - cos_sim
+        """Compute register distinctness between two probability vectors."""
+        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
+        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+
+        total_diff = 0
+        for reg_idx in range(len(probs1)):
+            if reg_idx in regs1 and reg_idx not in regs2:
+                total_diff += abs(probs1[reg_idx] - probs2[reg_idx])
+            elif reg_idx not in regs1 and reg_idx in regs2:
+                total_diff += abs(probs1[reg_idx] - probs2[reg_idx])
+
+        return total_diff
 
     def evaluate_split_individual(
         self,
