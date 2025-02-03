@@ -163,7 +163,7 @@ class MultiScaleSegmenter:
         if regs1 == parent_regs and regs2 == parent_regs:
             return 0
 
-        return min(max_prob1 - max_prob_parent, max_prob1 - max_prob_parent)
+        return min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
 
         # Calculate probability differences only for differing registers
         diff_score = 0.0
