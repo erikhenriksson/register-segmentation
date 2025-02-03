@@ -268,7 +268,7 @@ trainer = FocalLossTrainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_dev,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 )
 
 # Train
