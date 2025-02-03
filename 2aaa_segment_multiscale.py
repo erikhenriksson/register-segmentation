@@ -30,7 +30,6 @@ class MultiScaleSegmenter:
         model = AutoModelForSequenceClassification.from_pretrained(
             model_path, output_hidden_states=True
         )
-        # Extract classification head weights
         self.classifier = model.classifier.to("cuda")
         self.model = model.to("cuda")
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
@@ -38,7 +37,7 @@ class MultiScaleSegmenter:
         # Cache for token representations
         self.token_embeddings = None
         self.attention_mask = None
-        self.token_to_char_map = None
+        self.tokens = None
 
     def prepare_document(self, text: str):
         """Run model once for whole document and cache results."""
@@ -47,56 +46,46 @@ class MultiScaleSegmenter:
             truncation=True,
             max_length=self.config.max_length,
             return_tensors="pt",
-            return_offsets_mapping=True,  # Get char offsets for tokens
         ).to("cuda")
 
-        # Save token to character mapping
-        self.token_to_char_map = inputs.offset_mapping[0].cpu().numpy()
-
-        # Get token-level representations
+        self.tokens = inputs.input_ids[0]
         outputs = self.model(**inputs)
         self.token_embeddings = outputs.hidden_states[-1][
             0
         ].detach()  # Remove batch dim
         self.attention_mask = inputs.attention_mask[0]
 
-    def get_span_embedding(self, start_char: int, end_char: int) -> torch.Tensor:
-        """Get mean-pooled embedding for a text span using cached embeddings."""
+    def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
+        """Get mean-pooled embedding for token span using cached embeddings."""
         if self.token_embeddings is None:
             raise ValueError("Must call prepare_document before get_span_embedding")
 
-        # Ensure valid span indices
-        if start_char is None or end_char is None:
-            raise ValueError("start_char and end_char must not be None")
-
-        # Find tokens that overlap with character span
-        token_mask = np.zeros(len(self.token_to_char_map), dtype=bool)
-        for i, (token_start, token_end) in enumerate(self.token_to_char_map):
-            if token_end > start_char and token_start < end_char:
-                token_mask[i] = True
-
-        # Convert to tensor
-        token_mask = torch.tensor(token_mask, device="cuda")
-        token_mask = token_mask & self.attention_mask.bool()
-
-        # Mean pool relevant token embeddings
-        masked_embeddings = self.token_embeddings[token_mask]
+        # Mean pool the token embeddings for the span
+        span_embeddings = self.token_embeddings[start_token:end_token]
+        span_mask = self.attention_mask[start_token:end_token]
+        masked_embeddings = span_embeddings[span_mask.bool()]
         return torch.mean(masked_embeddings, dim=0)
 
     def get_register_probs(
-        self, text: str, start_char: int = None, end_char: int = None
+        self, text: str = None, start_token: int = None, end_token: int = None
     ) -> np.ndarray:
         """Get register probabilities for a text span."""
         if self.token_embeddings is None:
+            if text is None:
+                raise ValueError(
+                    "Must either provide text or call prepare_document first"
+                )
             self.prepare_document(text)
 
-        # If no span specified, use entire text
-        if start_char is None or end_char is None:
-            start_char = 0
-            end_char = len(text)
+        # If no span specified, use entire sequence
+        if start_token is None or end_token is None:
+            start_token = 0
+            end_token = len(self.token_embeddings)
 
-        # Get span embedding
-        span_embedding = self.get_span_embedding(start_char, end_char)
+        # Get span embedding and pass through classifier
+        span_embedding = self.get_span_embedding(start_token, end_token)
+        logits = self.classifier(span_embedding.unsqueeze(0))
+        return torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
 
         # Pass through classification head
         logits = self.classifier(span_embedding.unsqueeze(0))
@@ -251,7 +240,13 @@ class MultiScaleSegmenter:
         # Prepare document once
         self.prepare_document(text)
 
-        return self.segment_recursive(text, sentences, sent_spans)
+        segments = self.segment_recursive(text, sentences, sent_spans)
+
+        # If only one segment, make sure it matches whole document prediction
+        if len(segments) == 1:
+            segments = [(text, self.get_register_probs(text))]
+
+        return segments
 
     def truncate_text(self, text: str) -> str:
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
