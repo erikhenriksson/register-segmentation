@@ -28,7 +28,7 @@ class MultiScaleConfig:
 class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
         model = AutoModelForSequenceClassification.from_pretrained(
-            model_path, output_hidden_states=True
+            model_path, output_hidden_states=True, torch_dtype=torch.float16
         )
         self.classifier = model.classifier.to("cuda")
         self.model = model.to("cuda")
