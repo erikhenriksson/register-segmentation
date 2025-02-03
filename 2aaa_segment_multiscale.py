@@ -17,7 +17,7 @@ class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
     classification_threshold: float = 0.35  # Changed to match working code
-    min_register_diff: float = 0.15
+    min_register_diff: float = 0
     scale_weights: Dict[str, float] = None
 
     def __post_init__(self):
