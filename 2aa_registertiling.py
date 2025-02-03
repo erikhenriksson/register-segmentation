@@ -17,8 +17,8 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class SegmenterConfig:
     max_length: int = 2048
     classification_threshold: float = 0.35
-    min_sentences: int = 3
-    max_sentences: int = 20
+    min_sentences: int = 5
+    max_sentences: int = 100
     window_sentences: int = 5
     stride: int = 2
     merge_threshold: float = 0.3
