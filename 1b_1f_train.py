@@ -20,7 +20,7 @@ from transformers import (
     AutoConfig,
 )
 
-TRAIN = False
+TRAIN = True
 
 from torch.utils.data import DataLoader
 from labels import labels, convert_to_label_ids
