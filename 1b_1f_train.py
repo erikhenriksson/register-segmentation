@@ -20,6 +20,8 @@ from transformers import (
     AutoConfig,
 )
 
+TRAIN = False
+
 from torch.utils.data import DataLoader
 from labels import labels, convert_to_label_ids
 
@@ -270,7 +272,8 @@ trainer = FocalLossTrainer(
 )
 
 # Train
-trainer.train()
+if TRAIN:
+    trainer.train()
 
 # Save model and tokenizer
 trainer.save_model(f"{working_dir}/best_model")
