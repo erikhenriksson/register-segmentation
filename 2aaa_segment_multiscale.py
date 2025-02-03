@@ -118,12 +118,15 @@ class MultiScaleSegmenter:
         return probs
 
     def compute_register_distinctness(
-        self, probs1: np.ndarray, probs2: np.ndarray
+        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
         """Compute register distinctness between two probability vectors."""
         # Get registers above threshold
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = set(
+            np.where(parent_probs >= self.config.classification_threshold)[0]
+        )
 
         # Both segments must have at least one register
         if not (regs1 and regs2):
@@ -132,10 +135,21 @@ class MultiScaleSegmenter:
         # Get max probabilities
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
+        max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
+
+        # At least one segment must improve over parent probability
+        if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
+            return 0
 
         # Check if segments have meaningfully different registers
         if regs1 == regs2:
             return 0.0
+
+        # Reject if both segments have exactly same registers as parent
+        if regs1 == parent_regs and regs2 == parent_regs:
+            return 0
+
+        return min(max_prob1 - max_prob_parent, max_prob1 - max_prob_parent)
 
         # Calculate probability differences only for differing registers
         diff_score = 0.0
@@ -166,11 +180,16 @@ class MultiScaleSegmenter:
             self.get_register_probs(start_token=span[0], end_token=span[1])
             for span in right_spans
         ]
+        parent_probs = self.get_register_probs(
+            start_token=left_spans[0][0], end_token=right_spans[-1][1]
+        )
 
         scores = []
         for l_prob in left_probs:
             for r_prob in right_probs:
-                scores.append(self.compute_register_distinctness(l_prob, r_prob))
+                scores.append(
+                    self.compute_register_distinctness(l_prob, r_prob, parent_probs)
+                )
 
         return np.mean(scores) if scores else 0.0
 
@@ -206,10 +225,16 @@ class MultiScaleSegmenter:
             for span in right_pair_spans
         ]
 
+        parent_probs = self.get_register_probs(
+            start_token=left_spans[0][0], end_token=right_spans[-1][1]
+        )
+
         scores = []
         for l_prob in left_probs:
             for r_prob in right_probs:
-                scores.append(self.compute_register_distinctness(l_prob, r_prob))
+                scores.append(
+                    self.compute_register_distinctness(l_prob, r_prob, parent_probs)
+                )
 
         return np.mean(scores) if scores else 0.0
 
@@ -231,8 +256,11 @@ class MultiScaleSegmenter:
         right_probs = self.get_register_probs(
             start_token=right_start, end_token=right_end
         )
+        parent_probs = self.get_register_probs(
+            start_token=left_start, end_token=right_end
+        )
 
-        return self.compute_register_distinctness(left_probs, right_probs)
+        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
     def find_best_split(
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
