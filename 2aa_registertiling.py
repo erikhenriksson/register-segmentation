@@ -2,9 +2,9 @@ import sys
 import json
 import glob
 import pandas as pd
+import torch
 import numpy as np
 from typing import List, Dict, Tuple
-import nltk
 from nltk.tokenize import sent_tokenize
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from dataclasses import dataclass
@@ -28,7 +28,7 @@ class TextSegmenter:
     def __init__(self, model_path: str, config: SegmenterConfig = None):
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path, output_hidden_states=True
-        )
+        ).to("cuda")
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.config = config or SegmenterConfig()
 
@@ -49,14 +49,14 @@ class TextSegmenter:
             truncation=True,
             max_length=self.config.max_length,
             return_tensors="pt",
-        )
+        ).to("cuda")
         outputs = self.model(**inputs)
 
         # Get probabilities
-        probs = 1 / (1 + np.exp(-outputs.logits.detach().numpy()[0]))
+        probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
 
         # Get embedding
-        last_hidden_state = outputs.hidden_states[-1].detach().numpy()
+        last_hidden_state = outputs.hidden_states[-1].detach().cpu().numpy()
         attention_mask = inputs["attention_mask"].numpy()
         embedding = (
             np.sum(last_hidden_state * attention_mask[..., None], axis=1)
