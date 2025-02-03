@@ -10,8 +10,20 @@ labels_structure = {
     "OP": ["rv", "ob", "rs", "av"],
     "IP": ["ds", "ed"],
 }
+"""
 labels = [k for k in labels_structure.keys()] + [
     item for row in labels_structure.values() for item in row
+]
+"""
+labels = [
+    "LY",
+    "SP",
+    "ID",
+    "NA",
+    "HI",
+    "IN",
+    "OP",
+    "IP",
 ]
 
 
