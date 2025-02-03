@@ -45,7 +45,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
-def create_extended_deberta_multilabel(model_name, num_labels, max_length=4096):
+def create_extended_deberta_multilabel(model_name, num_labels, max_length=8192):
     config = DebertaV2Config.from_pretrained(model_name)
     config.update(
         {
