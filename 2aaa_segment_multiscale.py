@@ -69,29 +69,11 @@ class MultiScaleSegmenter:
         if start_char is None or end_char is None:
             raise ValueError("start_char and end_char must not be None")
 
-        # Find tokens that overlap with character span, accounting for special tokens
+        # Find tokens that overlap with character span
         token_mask = np.zeros(len(self.token_to_char_map), dtype=bool)
-        content_token_idx = 0  # Track position in content tokens
-
         for i, (token_start, token_end) in enumerate(self.token_to_char_map):
-            # Skip special tokens (they have 0,0 offset)
-            if token_start == 0 and token_end == 0:
-                continue
-
             if token_end > start_char and token_start < end_char:
-                # Map back to full token sequence including special tokens
-                # Add 1 to account for [CLS] token at start
                 token_mask[i] = True
-
-        # Convert to tensor - special tokens have already been included in mask
-        token_mask = torch.tensor(token_mask, device="cuda")
-        token_mask = token_mask & self.attention_mask.bool()
-
-        # Mean pool relevant token embeddings
-        masked_embeddings = self.token_embeddings[token_mask]
-        if len(masked_embeddings) == 0:
-            raise ValueError(f"No tokens found for span [{start_char}, {end_char}]")
-        return torch.mean(masked_embeddings, dim=0)
 
         # Convert to tensor
         token_mask = torch.tensor(token_mask, device="cuda")
@@ -252,6 +234,7 @@ class MultiScaleSegmenter:
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
         """Main entry point for text segmentation."""
+        text = self.truncate_text(text)
 
         # Get sentence boundaries with character offsets
         sentences = []
@@ -342,7 +325,6 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
-            text = segmenter.truncate_text(text)
             full_probs = segmenter.get_register_probs(text)
             segments = segmenter.segment_text(text)
 
