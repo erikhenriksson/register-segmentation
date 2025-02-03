@@ -15,13 +15,13 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
 @dataclass
 class SegmenterConfig:
-    max_length: int = 2048
-    classification_threshold: float = 0.35
-    min_sentences: int = 5
-    max_sentences: int = 100
-    window_sentences: int = 5
-    stride: int = 2
-    merge_threshold: float = 0.3
+    max_length: int = 8192  # 
+    classification_threshold: float = 0.35  # Increase for more confident register assignments
+    min_sentences: int = 3   # Decrease to allow shorter segments
+    max_sentences: int = 150 # Increase to handle longer coherent sections
+    window_sentences: int = 7 # Increase for more context
+    stride: int = 3  # Increase to reduce computational overhead
+    merge_threshold: float = 0.25 # Lower to detect subtle register shifts
 
 
 class TextSegmenter:
