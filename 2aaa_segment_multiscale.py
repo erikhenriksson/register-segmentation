@@ -248,8 +248,8 @@ class MultiScaleSegmenter:
         sent_spans = []
         curr_pos = 0
         for sent in sentences:
-            # Tokenize just this sentence
-            sent_tokens = self.tokenizer(sent, return_tensors="pt").input_ids[0]
+            # Tokenize just this sentence and move to cuda
+            sent_tokens = self.tokenizer(sent, return_tensors="pt").input_ids[0].cuda()
             # Find these tokens in the full document tokens
             for i in range(len(self.tokens) - len(sent_tokens) + 1):
                 if torch.equal(self.tokens[i : i + len(sent_tokens)], sent_tokens):
