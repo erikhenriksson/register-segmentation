@@ -20,7 +20,7 @@ from transformers import (
     AutoConfig,
 )
 
-TRAIN = True
+TRAIN = False
 
 from torch.utils.data import DataLoader
 from labels import labels, convert_to_label_ids
@@ -268,7 +268,7 @@ trainer = FocalLossTrainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_dev,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
 
 # Train
