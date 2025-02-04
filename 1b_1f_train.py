@@ -298,6 +298,7 @@ model = model.to("cuda")
 model.eval()
 
 trainer.model = model
+trainer.args.per_device_eval_batch_size = 8
 
 # Evaluate on test set
 print("\nFinal Test Set Evaluation:")
