@@ -20,8 +20,6 @@ from transformers import (
     AutoConfig,
 )
 
-TRAIN = True
-
 from torch.utils.data import DataLoader
 from labels import labels, convert_to_label_ids
 
@@ -33,6 +31,7 @@ models = {
 
 model_type = sys.argv[1] if len(sys.argv) > 1 else ""
 dataset = sys.argv[2] if len(sys.argv) > 2 else ""
+TRAIN = len(sys.argv) > 3 and sys.argv[3] == "train"
 if model_type not in models:
     print(f"Invalid model type: {model_type}")
     sys.exit(1)
