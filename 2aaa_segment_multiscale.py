@@ -15,7 +15,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 @dataclass
 class MultiScaleConfig:
     max_length: int = 2048
-    min_tokens: int = 64  # Minimum token count per segment
+    min_tokens: int = 100  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.0
     scale_weights: Dict[str, float] = None
@@ -349,7 +349,7 @@ class MultiScaleSegmenter:
             seg_diff = diff_score * (max_prob1 + max_prob2) / 2
 
         parent_diff = min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
-        lambda_weight = 0.5
+        lambda_weight = 0
         combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
 
         return combined_score
