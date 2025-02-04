@@ -29,10 +29,10 @@ class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path,
-            torch_dtype=torch.float16,  # Use float16 like working code
+            torch_dtype=torch.float16,
             output_hidden_states=True,
         ).to("cuda")
-        self.model.eval()  # Set model to eval mode
+        self.model.eval()
         self.tokenizer = AutoTokenizer.from_pretrained(
             "answerdotai/ModernBERT-large", use_fast=True
         )
@@ -42,45 +42,81 @@ class MultiScaleSegmenter:
         self.token_embeddings = None
         self.attention_mask = None
         self.tokens = None
-        self.offset_mapping = (
-            None  # Will hold the (start, end) positions for each token
-        )
+        self.offset_mapping = None
 
-    def safe_mean_pooling(
-        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
-    ) -> torch.Tensor:
-        """Safe mean pooling that handles edge cases to prevent infinite values"""
-        epsilon = 1e-10
-        attention_mask = attention_mask.unsqueeze(-1)
-        mask_sum = attention_mask.sum(dim=0) + epsilon
+        # Add cache for register probabilities
+        self._prob_cache = {}
+        self._embedding_cache = {}
 
-        # Ensure the mask sum is at least epsilon to prevent explosion
-        mask_sum = torch.maximum(
-            mask_sum,
-            torch.tensor(epsilon, device=mask_sum.device, dtype=hidden_states.dtype),
-        )
+    def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
+        """Get mean-pooled embedding for token span using cached embeddings."""
+        cache_key = (start_token, end_token)
+        if cache_key in self._embedding_cache:
+            return self._embedding_cache[cache_key]
 
-        # Compute weighted sum and divide by mask sum
-        weighted_sum = (hidden_states * attention_mask).sum(dim=0)
-        pooled = weighted_sum / mask_sum
+        if self.token_embeddings is None:
+            raise ValueError("Must call prepare_document before get_span_embedding")
 
-        # Clip any extreme values
-        pooled = torch.clamp(pooled, min=-100.0, max=100.0)
+        # Use safe mean pooling on the span
+        span_embeddings = self.token_embeddings[start_token:end_token]
+        span_mask = self.attention_mask[start_token:end_token]
+        embedding = self.safe_mean_pooling(span_embeddings, span_mask)
 
-        # Ensure output is in float16
-        return pooled.to(dtype=torch.float16)
+        # Cache the embedding
+        self._embedding_cache[cache_key] = embedding
+        return embedding
+
+    def get_register_probs(
+        self, text: str = None, start_token: int = None, end_token: int = None
+    ) -> Tuple[np.ndarray, torch.Tensor]:
+        """Get register probabilities and embedding for a text span."""
+        if self.token_embeddings is None:
+            if text is None:
+                raise ValueError(
+                    "Must either provide text or call prepare_document first"
+                )
+            self.prepare_document(text)
+            start_token = 0
+            end_token = len(self.token_embeddings)
+
+        # If no span specified, use entire sequence
+        if start_token is None or end_token is None:
+            start_token = 0
+            end_token = len(self.token_embeddings)
+
+        # Check cache
+        cache_key = (start_token, end_token)
+        if cache_key in self._prob_cache:
+            return self._prob_cache[cache_key], self._embedding_cache[cache_key]
+
+        # Get span embedding
+        span_embedding = self.get_span_embedding(start_token, end_token)
+
+        # Get probabilities
+        with torch.no_grad():
+            hidden = self.model.head(span_embedding.unsqueeze(0))
+            logits = self.model.classifier(hidden)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+
+        # Cache results
+        self._prob_cache[cache_key] = probs
+
+        return probs, span_embedding
 
     def prepare_document(self, text: str):
-        """Run model once for whole document and cache results, including offset mappings."""
+        """Run model once for whole document and cache results."""
+        # Clear caches when preparing new document
+        self._prob_cache = {}
+        self._embedding_cache = {}
+
         inputs = self.tokenizer(
             text,
             truncation=True,
             max_length=self.config.max_length,
             return_tensors="pt",
-            return_offsets_mapping=True,  # Request offset mapping
+            return_offsets_mapping=True,
             add_special_tokens=True,
         )
-        # Move tensors (except offset mapping) to CUDA
         inputs = {
             k: v.to("cuda") if k != "offset_mapping" else v for k, v in inputs.items()
         }
@@ -89,89 +125,48 @@ class MultiScaleSegmenter:
         outputs = self.model(**inputs)
         self.token_embeddings = outputs.hidden_states[-1][0].detach()
         self.attention_mask = inputs["attention_mask"][0]
-
-        # Save offset mapping; note that offset_mapping is on CPU and remains as a list/tensor of tuples.
-        # The offset mapping shape is (batch_size, seq_len, 2). We take the first batch.
         self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
 
-    def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
-        """Get mean-pooled embedding for token span using cached embeddings."""
-        if self.token_embeddings is None:
-            raise ValueError("Must call prepare_document before get_span_embedding")
+    def segment_text(self, text: str) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
+        """Main entry point for text segmentation."""
+        text = self.truncate_text(text)
 
-        # Use safe mean pooling on the span
-        span_embeddings = self.token_embeddings[start_token:end_token]
-        span_mask = self.attention_mask[start_token:end_token]
-        return self.safe_mean_pooling(span_embeddings, span_mask)
+        sent_detector = PunktSentenceTokenizer()
+        sent_char_spans = list(sent_detector.span_tokenize(text))
+        sentences = [text[s:e] for s, e in sent_char_spans]
 
-    def get_register_probs(
-        self, text: str = None, start_token: int = None, end_token: int = None
-    ) -> np.ndarray:
-        """Get register probabilities for a text span."""
-        if self.token_embeddings is None:
-            if text is None:
-                raise ValueError(
-                    "Must either provide text or call prepare_document first"
-                )
-            self.prepare_document(text)
+        self.prepare_document(text)
 
-        # If no span specified, use entire sequence
-        if start_token is None or end_token is None:
-            start_token = 0
-            end_token = len(self.token_embeddings)
+        offset_mapping = np.array(self.offset_mapping)
 
-        # Get span embedding
-        span_embedding = self.get_span_embedding(start_token, end_token)
+        sent_spans = []
+        for char_start, char_end in sent_char_spans:
+            token_start = None
+            token_end = None
+            for i, (tok_start, tok_end) in enumerate(offset_mapping):
+                if tok_start == tok_end == 0:
+                    continue
+                if token_start is None and tok_end > char_start:
+                    token_start = i
+                if tok_start < char_end:
+                    token_end = i + 1
+                else:
+                    break
+            if token_start is None or token_end is None:
+                token_start, token_end = 0, 0
+            sent_spans.append((int(token_start), int(token_end)))
 
-        # Important: Use model.head before classifier like in working code
-        with torch.no_grad():
-            hidden = self.model.head(span_embedding.unsqueeze(0))
-            logits = self.model.classifier(hidden)
-            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+        if not sent_spans:
+            probs, embedding = self.get_register_probs()
+            return [(text, probs, embedding)]
 
-        return probs
+        segments = self.segment_recursive(text, sentences, sent_spans)
 
-    def compute_register_distinctness(
-        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
-    ) -> float:
-        # Get registers above threshold for each segment and parent.
-        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
-        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
-        parent_regs = set(
-            np.where(parent_probs >= self.config.classification_threshold)[0]
-        )
+        if len(segments) == 1:
+            probs, embedding = self.get_register_probs()
+            segments = [(text, probs, embedding)]
 
-        # Both segments must have at least one register
-        if not (regs1 and regs2):
-            return 0.0
-
-        # Compute max probabilities for segments and parent.
-        max_prob1 = max(probs1)
-        max_prob2 = max(probs2)
-        max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
-
-        # Ensure that at least one segment improves over the parent.
-        if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
-            return 0
-
-        # Alternative 1: Differences between segments.
-        if regs1 == regs2:
-            seg_diff = 0.0
-        else:
-            diff_score = 0.0
-            diff_registers = (regs1 - regs2) | (regs2 - regs1)
-            for reg_idx in diff_registers:
-                diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
-            seg_diff = diff_score * (max_prob1 + max_prob2) / 2
-
-        # Alternative 2: Improvement over parent.
-        parent_diff = min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
-
-        # Combine both perspectives.
-        lambda_weight = 0.5  # Adjust this hyperparameter as needed.
-        combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
-
-        return combined_score
+        return segments
 
     def evaluate_split_individual(
         self,
@@ -184,19 +179,17 @@ class MultiScaleSegmenter:
         """Evaluate split at individual sentence level."""
         scores = []
 
-        # Compare each pair of sentences
         for left_span in left_spans:
-            left_prob = self.get_register_probs(
+            left_prob, _ = self.get_register_probs(
                 start_token=left_span[0], end_token=left_span[1]
             )
 
             for right_span in right_spans:
-                right_prob = self.get_register_probs(
+                right_prob, _ = self.get_register_probs(
                     start_token=right_span[0], end_token=right_span[1]
                 )
 
-                # Parent is just the combination of these two sentences
-                local_parent_probs = self.get_register_probs(
+                local_parent_probs, _ = self.get_register_probs(
                     start_token=left_span[0], end_token=right_span[1]
                 )
 
@@ -220,7 +213,6 @@ class MultiScaleSegmenter:
         if len(left_spans) < 2 or len(right_spans) < 2:
             return 0.0
 
-        # Create pairs by combining token spans
         left_pair_spans = [
             (left_spans[i][0], left_spans[i + 1][1])
             for i in range(0, len(left_spans) - 1, 2)
@@ -232,19 +224,17 @@ class MultiScaleSegmenter:
 
         scores = []
 
-        # Compare each pair of pairs
         for left_span in left_pair_spans:
-            left_probs = self.get_register_probs(
+            left_probs, _ = self.get_register_probs(
                 start_token=left_span[0], end_token=left_span[1]
             )
 
             for right_span in right_pair_spans:
-                right_probs = self.get_register_probs(
+                right_probs, _ = self.get_register_probs(
                     start_token=right_span[0], end_token=right_span[1]
                 )
 
-                # Parent is just the combination of these two pairs
-                local_parent_probs = self.get_register_probs(
+                local_parent_probs, _ = self.get_register_probs(
                     start_token=left_span[0], end_token=right_span[1]
                 )
 
@@ -270,11 +260,13 @@ class MultiScaleSegmenter:
         right_start = right_spans[0][0]
         right_end = right_spans[-1][1]
 
-        left_probs = self.get_register_probs(start_token=left_start, end_token=left_end)
-        right_probs = self.get_register_probs(
+        left_probs, _ = self.get_register_probs(
+            start_token=left_start, end_token=left_end
+        )
+        right_probs, _ = self.get_register_probs(
             start_token=right_start, end_token=right_end
         )
-        parent_probs = self.get_register_probs(
+        parent_probs, _ = self.get_register_probs(
             start_token=left_start, end_token=right_end
         )
 
@@ -317,72 +309,18 @@ class MultiScaleSegmenter:
 
         return best_split, best_score
 
-    def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
-        """Main entry point for text segmentation."""
-        text = self.truncate_text(text)
-
-        # Use NLTK’s span tokenizer to get character-level spans of sentences.
-        sent_detector = PunktSentenceTokenizer()
-        sent_char_spans = list(sent_detector.span_tokenize(text))
-        sentences = [text[s:e] for s, e in sent_char_spans]
-
-        # Prepare document once and get token indices, embeddings, and offset mappings.
-        self.prepare_document(text)
-
-        # Convert offset mapping to a numpy array for easier handling (each element is [start, end]).
-        offset_mapping = np.array(self.offset_mapping)  # shape: (seq_len, 2)
-
-        # Map sentence character spans to token index spans.
-        sent_spans = []
-        for char_start, char_end in sent_char_spans:
-            token_start = None
-            token_end = None
-            # Iterate over token offsets to find tokens overlapping with the sentence span.
-            for i, (tok_start, tok_end) in enumerate(offset_mapping):
-                # Some tokenizers (like BERT’s fast tokenizers) assign (0, 0) to special tokens.
-                if tok_start == tok_end == 0:
-                    continue
-                # Identify the first token that ends after the sentence starts.
-                if token_start is None and tok_end > char_start:
-                    token_start = i
-                # Continue as long as the token starts before the sentence ends.
-                if tok_start < char_end:
-                    token_end = i + 1
-                else:
-                    break
-            # Fallback: if no tokens were found (should not occur in well-formed cases)
-            if token_start is None or token_end is None:
-                token_start, token_end = 0, 0
-            sent_spans.append((int(token_start), int(token_end)))
-
-        # If no valid spans found, return single segment with whole document
-        if not sent_spans:
-            return [(text, self.get_register_probs())]
-
-        segments = self.segment_recursive(text, sentences, sent_spans)
-
-        # If only one segment, ensure it matches whole document prediction
-        if len(segments) == 1:
-            segments = [(text, self.get_register_probs())]
-
-        return segments
-
     def segment_recursive(
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
-    ) -> List[Tuple[str, np.ndarray]]:
+    ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
         """Recursively segment text using binary splitting."""
         if len(sentences) < 2 * self.config.min_sentences:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
-            return [
-                (
-                    span_text,
-                    self.get_register_probs(
-                        start_token=start_token, end_token=end_token
-                    ),
-                )
-            ]
+            probs, embedding = self.get_register_probs(
+                start_token=start_token, end_token=end_token
+            )
+            return [(span_text, probs, embedding)]
 
         split_idx, score = self.find_best_split(text, sentences, sent_spans)
 
@@ -390,14 +328,10 @@ class MultiScaleSegmenter:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
-            return [
-                (
-                    span_text,
-                    self.get_register_probs(
-                        start_token=start_token, end_token=end_token
-                    ),
-                )
-            ]
+            probs, embedding = self.get_register_probs(
+                start_token=start_token, end_token=end_token
+            )
+            return [(span_text, probs, embedding)]
 
         left_segments = self.segment_recursive(
             text, sentences[:split_idx], sent_spans[:split_idx]
@@ -407,17 +341,6 @@ class MultiScaleSegmenter:
         )
 
         return left_segments + right_segments
-
-    def truncate_text(self, text: str) -> str:
-        """Truncate text to max_length tokens."""
-        tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
-            "input_ids"
-        ][0]
-        if len(tokens) > self.config.max_length:
-            text = self.tokenizer.decode(
-                tokens[: self.config.max_length], skip_special_tokens=True
-            )
-        return text
 
     def print_result(self, result: Dict):
         """Print segmentation results."""
@@ -440,22 +363,48 @@ class MultiScaleSegmenter:
             print(seg["text"])
             print("---")
 
+    def compute_register_distinctness(
+        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
+    ) -> float:
+        """Compute register distinctness between two probability distributions."""
+        # Get registers above threshold for each segment and parent
+        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
+        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = set(
+            np.where(parent_probs >= self.config.classification_threshold)[0]
+        )
 
-# (The rest of the code, including get_last_processed_id and main, remains unchanged.)
+        # Both segments must have at least one register
+        if not (regs1 and regs2):
+            return 0.0
 
+        # Compute max probabilities for segments and parent
+        max_prob1 = max(probs1)
+        max_prob2 = max(probs2)
+        max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
 
-def get_last_processed_id(output_path):
-    """Get the ID of the last processed document."""
-    try:
-        with open(output_path, "r", encoding="utf-8") as f:
-            last_line = None
-            for line in f:
-                last_line = line
-            if last_line:
-                return json.loads(last_line)["id"]
-    except FileNotFoundError:
-        pass
-    return -1
+        # Ensure that at least one segment improves over the parent
+        if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
+            return 0
+
+        # Alternative 1: Differences between segments
+        if regs1 == regs2:
+            seg_diff = 0.0
+        else:
+            diff_score = 0.0
+            diff_registers = (regs1 - regs2) | (regs2 - regs1)
+            for reg_idx in diff_registers:
+                diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+            seg_diff = diff_score * (max_prob1 + max_prob2) / 2
+
+        # Alternative 2: Improvement over parent
+        parent_diff = min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
+
+        # Combine both perspectives
+        lambda_weight = 0.5
+        combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
+
+        return combined_score
 
 
 def main(model_path, dataset_path, output_path):
@@ -486,23 +435,21 @@ def main(model_path, dataset_path, output_path):
             text = row["text"]
             segments = segmenter.segment_text(text)
 
-            # If single segment, use its probs for both text_probs and segment probs
-            if len(segments) == 1:
-                text_probs = segments[0][1]
-            else:
-                # Otherwise get full document probs
-                text_probs = segmenter.get_register_probs(text)
+            # Get document-level predictions
+            text_probs, text_embedding = segmenter.get_register_probs(text)
 
             result = {
                 "id": i,
                 "label": row["label"],
                 "text_probs": [round(x, 4) for x in text_probs.tolist()],
+                "text_embedding": text_embedding.tolist(),
                 "segments": [
                     {
                         "text": text,
                         "probs": [round(x, 4) for x in probs.tolist()],
+                        "embedding": emb.tolist(),
                     }
-                    for text, probs in segments
+                    for text, probs, emb in segments
                 ],
             }
 
