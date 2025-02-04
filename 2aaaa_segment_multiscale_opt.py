@@ -342,7 +342,7 @@ class FastMultiScaleSegmenter:
         self,
         sentences: List[str],
         sent_spans: List[Tuple[int, int]],
-        min_chars: int = 300,
+        min_chars: int = 100,
     ) -> Tuple[List[str], List[Tuple[int, int]]]:
         """Combine sentences into larger blocks while preserving token spans."""
         result = []
