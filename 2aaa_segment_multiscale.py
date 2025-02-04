@@ -407,6 +407,20 @@ class MultiScaleSegmenter:
         return combined_score
 
 
+def get_last_processed_id(output_path):
+    """Get the ID of the last processed document."""
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            last_line = None
+            for line in f:
+                last_line = line
+            if last_line:
+                return json.loads(last_line)["id"]
+    except FileNotFoundError:
+        pass
+    return -1
+
+
 def main(model_path, dataset_path, output_path):
     config = MultiScaleConfig()
     all_data = []
