@@ -293,8 +293,11 @@ else:
         f"{working_dir}/best_model", config=config
     )
 
+# Replace this section in your evaluation code
 model = model.to("cuda")
 model.eval()
+
+trainer.model = model
 
 # Evaluate on test set
 print("\nFinal Test Set Evaluation:")
