@@ -330,7 +330,8 @@ else:
     model = AutoModelForSequenceClassification.from_pretrained(
         f"{working_dir}/best_model", config=config
     )
-
+model = model.to("cuda")
+model.eval()
 # Process test data in smaller batches
 test_dataloader = DataLoader(
     tokenized_test, batch_size=8, shuffle=False
