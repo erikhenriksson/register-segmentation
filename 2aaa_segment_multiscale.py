@@ -15,8 +15,8 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 @dataclass
 class MultiScaleConfig:
     max_length: int = 2048
-    min_sentences: int = 3
-    classification_threshold: float = 0.70  # Changed to match working code
+    min_tokens: int = 50  # Minimum token count per segment
+    classification_threshold: float = 0.70
     min_register_diff: float = 0.0
     scale_weights: Dict[str, float] = None
 
@@ -44,7 +44,7 @@ class MultiScaleSegmenter:
         self.tokens = None
         self.offset_mapping = None
 
-        # Add cache for register probabilities and embeddings
+        # Cache for register probabilities and embeddings
         self._prob_cache = {}
         self._embedding_cache = {}
 
@@ -133,6 +133,55 @@ class MultiScaleSegmenter:
         self.token_embeddings = outputs.hidden_states[-1][0].detach()
         self.attention_mask = inputs["attention_mask"][0]
         self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
+
+    def merge_short_sentences(
+        self, sentences: List[str], sent_spans: List[Tuple[int, int]]
+    ) -> Tuple[List[str], List[Tuple[int, int]]]:
+        """Merge short sentences into groups that meet the minimum token requirement."""
+        if not sentences:
+            return [], []
+
+        merged_sentences = []
+        merged_spans = []
+        current_group = [sentences[0]]
+        current_span = [sent_spans[0]]
+
+        for sent, span in zip(sentences[1:], sent_spans[1:]):
+            # Calculate tokens in current group plus next sentence
+            potential_span = (current_span[0][0], span[1])
+            token_count = potential_span[1] - potential_span[0]
+            current_token_count = current_span[-1][1] - current_span[0][0]
+
+            # If adding next sentence keeps us under minimum, or current group is under minimum
+            if (
+                token_count < self.config.min_tokens
+                or current_token_count < self.config.min_tokens
+            ):
+                # Add to current group
+                current_group.append(sent)
+                current_span.append(span)
+            else:
+                # Current group is large enough and adding more would be too large
+                merged_sentences.append(" ".join(current_group))
+                merged_spans.append((current_span[0][0], current_span[-1][1]))
+                current_group = [sent]
+                current_span = [span]
+
+        # Handle the last group - if it's too small and we have previous groups, merge with last group
+        if current_group:
+            current_token_count = current_span[-1][1] - current_span[0][0]
+            if current_token_count < self.config.min_tokens and merged_sentences:
+                # Merge with previous group
+                last_group = merged_sentences.pop().split()
+                last_span = merged_spans.pop()
+                merged_sentences.append(" ".join(last_group + current_group))
+                merged_spans.append((last_span[0], current_span[-1][1]))
+            else:
+                # Add as new group
+                merged_sentences.append(" ".join(current_group))
+                merged_spans.append((current_span[0][0], current_span[-1][1]))
+
+        return merged_sentences, merged_spans
 
     def evaluate_split_individual(
         self,
@@ -228,6 +277,7 @@ class MultiScaleSegmenter:
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
+        """Compute how distinct two spans are in terms of their register probabilities."""
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
         parent_regs = set(
@@ -266,9 +316,7 @@ class MultiScaleSegmenter:
         best_score = 0
         best_split = None
 
-        for i in range(
-            self.config.min_sentences, len(sentences) - self.config.min_sentences + 1
-        ):
+        for i in range(1, len(sentences)):
             left_sents = sentences[:i]
             right_sents = sentences[i:]
             left_spans = sent_spans[:i]
@@ -295,6 +343,42 @@ class MultiScaleSegmenter:
                 best_split = i
 
         return best_split, best_score
+
+    def segment_recursive(
+        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+    ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
+        """Recursively segment text using binary splitting."""
+        total_tokens = sent_spans[-1][1] - sent_spans[0][0]
+
+        # Base case: if total tokens is less than 2 * min_tokens, don't split further
+        if total_tokens < 2 * self.config.min_tokens:
+            start_token = sent_spans[0][0]
+            end_token = sent_spans[-1][1]
+            span_text = " ".join(sentences)
+            probs, embedding = self.get_register_probs(
+                start_token=start_token, end_token=end_token
+            )
+            return [(span_text, probs, embedding)]
+
+        split_idx, score = self.find_best_split(text, sentences, sent_spans)
+
+        if score < self.config.min_register_diff or split_idx is None:
+            start_token = sent_spans[0][0]
+            end_token = sent_spans[-1][1]
+            span_text = " ".join(sentences)
+            probs, embedding = self.get_register_probs(
+                start_token=start_token, end_token=end_token
+            )
+            return [(span_text, probs, embedding)]
+
+        left_segments = self.segment_recursive(
+            text, sentences[:split_idx], sent_spans[:split_idx]
+        )
+        right_segments = self.segment_recursive(
+            text, sentences[split_idx:], sent_spans[split_idx:]
+        )
+
+        return left_segments + right_segments
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
         """Main entry point for text segmentation."""
@@ -327,6 +411,9 @@ class MultiScaleSegmenter:
             probs, embedding = self.get_register_probs()
             return [(text, probs, embedding)]
 
+        # Merge short sentences into adequately-sized groups
+        sentences, sent_spans = self.merge_short_sentences(sentences, sent_spans)
+
         segments = self.segment_recursive(text, sentences, sent_spans)
 
         if len(segments) == 1:
@@ -334,39 +421,6 @@ class MultiScaleSegmenter:
             segments = [(text, probs, embedding)]
 
         return segments
-
-    def segment_recursive(
-        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
-    ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
-        """Recursively segment text using binary splitting."""
-        if len(sentences) < 2 * self.config.min_sentences:
-            start_token = sent_spans[0][0]
-            end_token = sent_spans[-1][1]
-            span_text = " ".join(sentences)
-            probs, embedding = self.get_register_probs(
-                start_token=start_token, end_token=end_token
-            )
-            return [(span_text, probs, embedding)]
-
-        split_idx, score = self.find_best_split(text, sentences, sent_spans)
-
-        if score < self.config.min_register_diff or split_idx is None:
-            start_token = sent_spans[0][0]
-            end_token = sent_spans[-1][1]
-            span_text = " ".join(sentences)
-            probs, embedding = self.get_register_probs(
-                start_token=start_token, end_token=end_token
-            )
-            return [(span_text, probs, embedding)]
-
-        left_segments = self.segment_recursive(
-            text, sentences[:split_idx], sent_spans[:split_idx]
-        )
-        right_segments = self.segment_recursive(
-            text, sentences[split_idx:], sent_spans[split_idx:]
-        )
-
-        return left_segments + right_segments
 
     def truncate_text(self, text: str) -> str:
         """Truncate text to max_length tokens."""
