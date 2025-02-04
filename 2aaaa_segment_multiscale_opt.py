@@ -339,89 +339,99 @@ class FastMultiScaleSegmenter:
         return best_split, best_score
 
     def combine_short_sentences(
-        self, sentences: List[str], min_chars: int = 300
-    ) -> List[str]:
-        """Combine sentences into larger blocks until we have at most max_groups blocks."""
+        self,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        min_chars: int = 300,
+    ) -> Tuple[List[str], List[Tuple[int, int]]]:
+        """Combine sentences into larger blocks while preserving token spans."""
         result = []
-        buffer = ""
+        result_spans = []
+        buffer = []
+        buffer_spans = []
 
-        for i, sentence in enumerate(sentences):
+        for sentence, span in zip(sentences, sent_spans):
             if len(sentence) >= min_chars:
+                # If there's a buffer, save it first
                 if buffer:
-                    result.append(buffer.strip())
-                    buffer = ""
+                    combined_buffer = " ".join(buffer)
+                    result.append(combined_buffer)
+                    # Use the start of the first buffered span and end of the last
+                    result_spans.append((buffer_spans[0][0], buffer_spans[-1][1]))
+                    buffer = []
+                    buffer_spans = []
+
+                # Add the current long sentence
                 result.append(sentence)
+                result_spans.append(span)
             else:
-                buffer += (buffer and " ") + sentence
+                buffer.append(sentence)
+                buffer_spans.append(span)
 
-                if len(buffer) >= min_chars:
-                    result.append(buffer.strip())
-                    buffer = ""
+                # Check if buffer is now large enough
+                if len(" ".join(buffer)) >= min_chars:
+                    combined_buffer = " ".join(buffer)
+                    result.append(combined_buffer)
+                    # Use the start of the first buffered span and end of the last
+                    result_spans.append((buffer_spans[0][0], buffer_spans[-1][1]))
+                    buffer = []
+                    buffer_spans = []
 
+        # Handle any remaining buffer
         if buffer:
-            result.append(buffer.strip())
+            combined_buffer = " ".join(buffer)
+            result.append(combined_buffer)
+            result_spans.append((buffer_spans[0][0], buffer_spans[-1][1]))
 
+        # Final pass to ensure no tiny segments remain
+        final_result = []
+        final_spans = []
         i = 0
         while i < len(result):
             if len(result[i]) < min_chars:
                 if i < len(result) - 1:
+                    # Combine with next segment
                     result[i + 1] = result[i] + " " + result[i + 1]
+                    # Update span to cover both segments
+                    result_spans[i + 1] = (result_spans[i][0], result_spans[i + 1][1])
                     result.pop(i)
+                    result_spans.pop(i)
                 elif i > 0:
+                    # Combine with previous segment
                     result[i - 1] += " " + result[i]
+                    # Update span to cover both segments
+                    result_spans[i - 1] = (result_spans[i - 1][0], result_spans[i][1])
                     result.pop(i)
+                    result_spans.pop(i)
                 else:
                     break
             else:
+                final_result.append(result[i])
+                final_spans.append(result_spans[i])
                 i += 1
 
-        return result
+        return final_result, final_spans
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray]]:
         """Main entry point for text segmentation."""
         text = self.truncate_text(text)
         sent_detector = PunktSentenceTokenizer()
-        original_sent_char_spans = list(sent_detector.span_tokenize(text))
-        original_sentences = [text[s:e] for s, e in original_sent_char_spans]
+        sent_char_spans = list(sent_detector.span_tokenize(text))
+        sentences = [text[s:e] for s, e in sent_char_spans]
 
-        # Combine short sentences first
-        combined_sentences = self.combine_short_sentences(original_sentences)
-
-        # Recalculate character spans for combined sentences
-        combined_sent_char_spans = []
-        last_end = 0
-        for combined_sent in combined_sentences:
-            # Find the next occurrence of the combined sentence after the last used position
-            found = False
-            for start in range(last_end, len(text) - len(combined_sent) + 1):
-                if (
-                    text[start : start + len(combined_sent)].strip()
-                    == combined_sent.strip()
-                ):
-                    combined_sent_char_spans.append((start, start + len(combined_sent)))
-                    last_end = start + len(combined_sent)
-                    found = True
-                    break
-
-            # If not found, something is wrong with our sentence combination
-            if not found:
-                raise ValueError(f"Could not locate combined sentence: {combined_sent}")
-
-        # Rest of the method remains the same
         self.prepare_document(text)
         offset_mapping = np.array(self.offset_mapping)
 
-        # Recalculate token spans based on combined sentences
         sent_spans = []
-        for combined_sent_span in combined_sent_char_spans:
+        for char_start, char_end in sent_char_spans:
             token_start = None
             token_end = None
             for i, (tok_start, tok_end) in enumerate(offset_mapping):
                 if tok_start == tok_end == 0:
                     continue
-                if token_start is None and tok_end > combined_sent_span[0]:
+                if token_start is None and tok_end > char_start:
                     token_start = i
-                if tok_start < combined_sent_span[1]:
+                if tok_start < char_end:
                     token_end = i + 1
                 else:
                     break
@@ -429,10 +439,15 @@ class FastMultiScaleSegmenter:
                 token_start, token_end = 0, 0
             sent_spans.append((int(token_start), int(token_end)))
 
-        if not sent_spans:
+        # Combine sentences and their spans
+        combined_sentences, combined_sent_spans = self.combine_short_sentences(
+            sentences, sent_spans
+        )
+
+        if not combined_sent_spans:
             return [(text, self.get_register_probs())]
 
-        segments = self.segment_recursive(text, combined_sentences, sent_spans)
+        segments = self.segment_recursive(text, combined_sentences, combined_sent_spans)
 
         if len(segments) == 1:
             segments = [(text, self.get_register_probs())]
