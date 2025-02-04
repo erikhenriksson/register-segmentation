@@ -479,7 +479,7 @@ def main(model_path, dataset_path, output_path):
     combined_df = pd.concat(all_data, ignore_index=True)
 
     last_id = get_last_processed_id(output_path)
-    segmenter = MultiScaleSegmenter(model_path=model_path, config=config)
+    segmenter = FastMultiScaleSegmenter(model_path=model_path, config=config)
 
     print("last_id:", last_id)
 
