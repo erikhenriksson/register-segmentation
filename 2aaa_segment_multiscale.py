@@ -22,7 +22,7 @@ class MultiScaleConfig:
 
     def __post_init__(self):
         if self.scale_weights is None:
-            self.scale_weights = {"individual": 0.7, "pairs": 0.2, "whole": 0.1}
+            self.scale_weights = {"individual": 1 / 3, "pairs": 1 / 3, "whole": 1 / 3}
 
 
 class MultiScaleSegmenter:
