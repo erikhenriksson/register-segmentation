@@ -16,7 +16,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class MultiScaleConfig:
     max_length: int = 2048
     min_sentences: int = 3
-    classification_threshold: float = 0.30  # Changed to match working code
+    classification_threshold: float = 0.70  # Changed to match working code
     min_register_diff: float = 0.0
     scale_weights: Dict[str, float] = None
 
