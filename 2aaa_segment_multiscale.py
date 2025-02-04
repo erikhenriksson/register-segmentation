@@ -349,7 +349,7 @@ class MultiScaleSegmenter:
             seg_diff = diff_score * (max_prob1 + max_prob2) / 2
 
         parent_diff = min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
-        lambda_weight = 0
+        lambda_weight = 1
         combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
 
         return combined_score
