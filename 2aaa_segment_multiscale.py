@@ -15,7 +15,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 @dataclass
 class MultiScaleConfig:
     max_length: int = 2048
-    min_tokens: int = 128  # Minimum token count per segment
+    min_tokens: int = 64  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.0
     scale_weights: Dict[str, float] = None
@@ -183,6 +183,42 @@ class MultiScaleSegmenter:
 
         return merged_sentences, merged_spans
 
+    def get_span_window(
+        self, spans: List[Tuple[int, int]], percentage: float, from_end: bool = True
+    ) -> Tuple[int, int]:
+        """Get a window of spans based on percentage of total token length.
+
+        Args:
+            spans: List of token spans
+            percentage: What percentage of total length to include (0.0 to 1.0)
+            from_end: If True, get window from end of spans, else from start
+        """
+        if not spans:
+            return None
+
+        # Calculate total token length
+        total_tokens = spans[-1][1] - spans[0][0]
+        window_tokens = int(total_tokens * percentage)
+
+        if from_end:
+            # Work backwards from end
+            end_token = spans[-1][1]
+            start_token = end_token
+            for span in reversed(spans):
+                start_token = span[0]
+                if end_token - start_token >= window_tokens:
+                    break
+            return (start_token, end_token)
+        else:
+            # Work forwards from start
+            start_token = spans[0][0]
+            end_token = start_token
+            for span in spans:
+                end_token = span[1]
+                if end_token - start_token >= window_tokens:
+                    break
+            return (start_token, end_token)
+
     def evaluate_split_individual(
         self,
         text: str,
@@ -191,13 +227,22 @@ class MultiScaleSegmenter:
         left_spans: List[Tuple[int, int]],
         right_spans: List[Tuple[int, int]],
     ) -> float:
-        """Evaluate split by comparing sentences around the boundary."""
+        """Evaluate split by comparing regions right around the boundary."""
         if not left_spans or not right_spans:
             return 0.0
 
-        # Get just the boundary sentences/groups
-        boundary_left = left_spans[-1]  # Last group from left
-        boundary_right = right_spans[0]  # First group from right
+        # Get windows around boundary (10% of each segment)
+        INDIVIDUAL_WINDOW_PCT = 0.1
+
+        boundary_left = self.get_span_window(
+            left_spans, INDIVIDUAL_WINDOW_PCT, from_end=True
+        )
+        boundary_right = self.get_span_window(
+            right_spans, INDIVIDUAL_WINDOW_PCT, from_end=False
+        )
+
+        if not boundary_left or not boundary_right:
+            return 0.0
 
         left_prob, _ = self.get_register_probs(
             start_token=boundary_left[0], end_token=boundary_left[1]
@@ -221,22 +266,29 @@ class MultiScaleSegmenter:
         left_spans: List[Tuple[int, int]],
         right_spans: List[Tuple[int, int]],
     ) -> float:
-        """Evaluate split using pairs of sentences around the boundary."""
-        if len(left_spans) < 2 or len(right_spans) < 2:
+        """Evaluate split using larger windows around the boundary."""
+        if not left_spans or not right_spans:
             return 0.0
 
-        # Create just one pair on each side of the boundary
-        left_pair = (left_spans[-2][0], left_spans[-1][1])  # last two sentences
-        right_pair = (right_spans[0][0], right_spans[1][1])  # first two sentences
+        # Get larger windows around boundary (25% of each segment)
+        PAIRS_WINDOW_PCT = 0.25
+
+        left_window = self.get_span_window(left_spans, PAIRS_WINDOW_PCT, from_end=True)
+        right_window = self.get_span_window(
+            right_spans, PAIRS_WINDOW_PCT, from_end=False
+        )
+
+        if not left_window or not right_window:
+            return 0.0
 
         left_probs, _ = self.get_register_probs(
-            start_token=left_pair[0], end_token=left_pair[1]
+            start_token=left_window[0], end_token=left_window[1]
         )
         right_probs, _ = self.get_register_probs(
-            start_token=right_pair[0], end_token=right_pair[1]
+            start_token=right_window[0], end_token=right_window[1]
         )
         parent_probs, _ = self.get_register_probs(
-            start_token=left_pair[0], end_token=right_pair[1]
+            start_token=left_window[0], end_token=right_window[1]
         )
 
         return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
