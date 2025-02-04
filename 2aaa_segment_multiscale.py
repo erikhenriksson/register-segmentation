@@ -14,7 +14,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
 @dataclass
 class MultiScaleConfig:
-    max_length: int = 2048
+    max_length: int = 8192
     min_tokens: int = 100  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.0
