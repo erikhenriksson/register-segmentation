@@ -192,33 +192,26 @@ class MultiScaleSegmenter:
         right_spans: List[Tuple[int, int]],
     ) -> float:
         """Evaluate split by comparing sentences around the boundary."""
-        scores = []
+        if not left_spans or not right_spans:
+            return 0.0
 
-        # Get last two sentences from left side
-        boundary_left_spans = left_spans[-2:] if len(left_spans) >= 2 else left_spans
+        # Get just the boundary sentences/groups
+        boundary_left = left_spans[-1]  # Last group from left
+        boundary_right = right_spans[0]  # First group from right
 
-        # Get first two sentences from right side
-        boundary_right_spans = right_spans[:2] if len(right_spans) >= 2 else right_spans
+        left_prob, _ = self.get_register_probs(
+            start_token=boundary_left[0], end_token=boundary_left[1]
+        )
+        right_prob, _ = self.get_register_probs(
+            start_token=boundary_right[0], end_token=boundary_right[1]
+        )
+        local_parent_probs, _ = self.get_register_probs(
+            start_token=boundary_left[0], end_token=boundary_right[1]
+        )
 
-        # Compare only the sentences around the boundary
-        for left_span in boundary_left_spans:
-            for right_span in boundary_right_spans:
-                left_prob, _ = self.get_register_probs(
-                    start_token=left_span[0], end_token=left_span[1]
-                )
-                right_prob, _ = self.get_register_probs(
-                    start_token=right_span[0], end_token=right_span[1]
-                )
-                local_parent_probs, _ = self.get_register_probs(
-                    start_token=left_span[0], end_token=right_span[1]
-                )
-                scores.append(
-                    self.compute_register_distinctness(
-                        left_prob, right_prob, local_parent_probs
-                    )
-                )
-
-        return np.mean(scores) if scores else 0.0
+        return self.compute_register_distinctness(
+            left_prob, right_prob, local_parent_probs
+        )
 
     def evaluate_split_pairs(
         self,
