@@ -279,24 +279,6 @@ if TRAIN:
     trainer.save_model(f"{working_dir}/best_model")
     tokenizer.save_pretrained(f"{working_dir}/best_model")
 
-# Evaluate on test set
-print("\nFinal Test Set Evaluation:")
-test_results = trainer.evaluate(tokenized_test)
-
-# Get optimal threshold from test results
-optimal_threshold = test_results["eval_optimal_threshold"]
-
-print(f"\nOptimal test threshold: {optimal_threshold:.3f}")
-
-# Print metrics
-print("\nFinal Test Metrics:")
-for metric, value in test_results.items():
-    if metric != "classification_report" and isinstance(value, (int, float)):
-        print(f"{metric}: {value:.4f}")
-
-print(f"\nBest model saved to {working_dir}/best_model")
-
-
 # For final test evaluation, create a new model instance with hidden states enabled
 print("\nLoading best model for test evaluation...")
 if model_type == "deberta":
@@ -314,6 +296,24 @@ else:
 
 model = model.to("cuda")
 model.eval()
+
+# Evaluate on test set
+print("\nFinal Test Set Evaluation:")
+test_results = trainer.evaluate(tokenized_test)
+
+# Get optimal threshold from test results
+optimal_threshold = test_results["eval_optimal_threshold"]
+
+print(f"\nOptimal test threshold: {optimal_threshold:.3f}")
+
+# Print metrics
+print("\nFinal Test Metrics:")
+for metric, value in test_results.items():
+    if metric != "classification_report" and isinstance(value, (int, float)):
+        print(f"{metric}: {value:.4f}")
+
+print(f"\nBest model saved to {working_dir}/best_model")
+
 
 # Process test data in smaller batches
 test_dataloader = DataLoader(
