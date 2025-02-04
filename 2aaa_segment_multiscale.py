@@ -181,25 +181,29 @@ class MultiScaleSegmenter:
         left_spans: List[Tuple[int, int]],
         right_spans: List[Tuple[int, int]],
     ) -> float:
-        """Evaluate split at individual sentence level using cached embeddings."""
-        # Get predictions for each sentence using cached embeddings
-        left_probs = [
-            self.get_register_probs(start_token=span[0], end_token=span[1])
-            for span in left_spans
-        ]
-        right_probs = [
-            self.get_register_probs(start_token=span[0], end_token=span[1])
-            for span in right_spans
-        ]
-        parent_probs = self.get_register_probs(
-            start_token=left_spans[0][0], end_token=right_spans[-1][1]
-        )
-
+        """Evaluate split at individual sentence level."""
         scores = []
-        for l_prob in left_probs:
-            for r_prob in right_probs:
+
+        # Compare each pair of sentences
+        for left_span in left_spans:
+            left_prob = self.get_register_probs(
+                start_token=left_span[0], end_token=left_span[1]
+            )
+
+            for right_span in right_spans:
+                right_prob = self.get_register_probs(
+                    start_token=right_span[0], end_token=right_span[1]
+                )
+
+                # Parent is just the combination of these two sentences
+                local_parent_probs = self.get_register_probs(
+                    start_token=left_span[0], end_token=right_span[1]
+                )
+
                 scores.append(
-                    self.compute_register_distinctness(l_prob, r_prob, parent_probs)
+                    self.compute_register_distinctness(
+                        left_prob, right_prob, local_parent_probs
+                    )
                 )
 
         return np.mean(scores) if scores else 0.0
@@ -226,25 +230,28 @@ class MultiScaleSegmenter:
             for i in range(0, len(right_spans) - 1, 2)
         ]
 
-        # Get predictions for each pair using cached embeddings
-        left_probs = [
-            self.get_register_probs(start_token=span[0], end_token=span[1])
-            for span in left_pair_spans
-        ]
-        right_probs = [
-            self.get_register_probs(start_token=span[0], end_token=span[1])
-            for span in right_pair_spans
-        ]
-
-        parent_probs = self.get_register_probs(
-            start_token=left_spans[0][0], end_token=right_spans[-1][1]
-        )
-
         scores = []
-        for l_prob in left_probs:
-            for r_prob in right_probs:
+
+        # Compare each pair of pairs
+        for left_span in left_pair_spans:
+            left_probs = self.get_register_probs(
+                start_token=left_span[0], end_token=left_span[1]
+            )
+
+            for right_span in right_pair_spans:
+                right_probs = self.get_register_probs(
+                    start_token=right_span[0], end_token=right_span[1]
+                )
+
+                # Parent is just the combination of these two pairs
+                local_parent_probs = self.get_register_probs(
+                    start_token=left_span[0], end_token=right_span[1]
+                )
+
                 scores.append(
-                    self.compute_register_distinctness(l_prob, r_prob, parent_probs)
+                    self.compute_register_distinctness(
+                        left_probs, right_probs, local_parent_probs
+                    )
                 )
 
         return np.mean(scores) if scores else 0.0
