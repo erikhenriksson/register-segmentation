@@ -277,18 +277,19 @@ if TRAIN:
     # Save model and tokenizer
     trainer.save_model(f"{working_dir}/best_model")
     tokenizer.save_pretrained(f"{working_dir}/best_model")
+    print(f"\nBest model saved to {working_dir}/best_model")
 
 # For final test evaluation, create a new model instance with hidden states enabled
 print("\nLoading best model for test evaluation...")
 if model_type == "deberta":
     config = DebertaV2Config.from_pretrained(f"{working_dir}/best_model")
-    config.output_hidden_states = True
+    config.output_hidden_states = False
     model = DebertaV2ForSequenceClassification.from_pretrained(
         f"{working_dir}/best_model", config=config
     )
 else:
     config = AutoConfig.from_pretrained(f"{working_dir}/best_model")
-    config.output_hidden_states = True
+    config.output_hidden_states = False
     model = AutoModelForSequenceClassification.from_pretrained(
         f"{working_dir}/best_model", config=config
     )
@@ -298,7 +299,6 @@ model = model.to("cuda")
 model.eval()
 
 trainer.model = model
-trainer.args.per_device_eval_batch_size = 2
 
 # Evaluate on test set
 print("\nFinal Test Set Evaluation:")
@@ -315,8 +315,21 @@ for metric, value in test_results.items():
     if metric != "classification_report" and isinstance(value, (int, float)):
         print(f"{metric}: {value:.4f}")
 
-print(f"\nBest model saved to {working_dir}/best_model")
 
+# For final test evaluation, create a new model instance with hidden states enabled
+print("\nLoading best model for test evaluation...")
+if model_type == "deberta":
+    config = DebertaV2Config.from_pretrained(f"{working_dir}/best_model")
+    config.output_hidden_states = True
+    model = DebertaV2ForSequenceClassification.from_pretrained(
+        f"{working_dir}/best_model", config=config
+    )
+else:
+    config = AutoConfig.from_pretrained(f"{working_dir}/best_model")
+    config.output_hidden_states = True
+    model = AutoModelForSequenceClassification.from_pretrained(
+        f"{working_dir}/best_model", config=config
+    )
 
 # Process test data in smaller batches
 test_dataloader = DataLoader(
