@@ -23,7 +23,7 @@ class MultiScaleConfig:
 
     def __post_init__(self):
         if self.scale_weights is None:
-            self.scale_weights = {"individual": 0.2, "pairs": 0.5, "whole": 0.3}
+            self.scale_weights = {"individual": 1 / 3, "pairs": 1 / 3, "whole": 1 / 3}
 
 
 class FastMultiScaleSegmenter:
@@ -95,25 +95,38 @@ class FastMultiScaleSegmenter:
 
     def get_register_probs(
         self, text: str = None, start_token: int = None, end_token: int = None
-    ) -> np.ndarray:
-        """Get register probabilities with caching."""
+    ) -> Tuple[np.ndarray, torch.Tensor]:
+        """Get register probabilities and embedding with caching."""
         if text is not None and (start_token is None or end_token is None):
             self.prepare_document(text)
             start_token = 0
             end_token = len(self.token_embeddings)
 
         cache_key = (start_token, end_token)
-        if cache_key in self.probs_cache:
-            return self.probs_cache[cache_key]
 
+        # Check if both probabilities and embedding are cached
+        if hasattr(self, "embedding_cache"):
+            if cache_key in self.embedding_cache:
+                return (
+                    self.embedding_cache[cache_key]["probs"],
+                    self.embedding_cache[cache_key]["embedding"],
+                )
+        else:
+            # Initialize embedding cache if it doesn't exist
+            self.embedding_cache = {}
+
+        # Get span embedding
         span_embedding = self.get_span_embedding(start_token, end_token)
+
         with torch.no_grad():
             hidden = self.model.head(span_embedding.unsqueeze(0))
             logits = self.model.classifier(hidden)
             probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
 
-        self.probs_cache[cache_key] = probs
-        return probs
+        # Cache both probabilities and embedding
+        self.embedding_cache[cache_key] = {"probs": probs, "embedding": span_embedding}
+
+        return probs, span_embedding
 
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
@@ -167,16 +180,16 @@ class FastMultiScaleSegmenter:
 
         for left_idx in left_indices:
             left_span = left_spans[left_idx]
-            left_prob = self.get_register_probs(
+            left_prob, _ = self.get_register_probs(
                 start_token=left_span[0], end_token=left_span[1]
             )
 
             for right_idx in right_indices:
                 right_span = right_spans[right_idx]
-                right_prob = self.get_register_probs(
+                right_prob, _ = self.get_register_probs(
                     start_token=right_span[0], end_token=right_span[1]
                 )
-                local_parent_probs = self.get_register_probs(
+                local_parent_probs, _ = self.get_register_probs(
                     start_token=left_span[0], end_token=right_span[1]
                 )
                 scores.append(
@@ -226,14 +239,14 @@ class FastMultiScaleSegmenter:
 
         scores = []
         for left_span in left_pair_spans:
-            left_probs = self.get_register_probs(
+            left_probs, _ = self.get_register_probs(
                 start_token=left_span[0], end_token=left_span[1]
             )
             for right_span in right_pair_spans:
-                right_probs = self.get_register_probs(
+                right_probs, _ = self.get_register_probs(
                     start_token=right_span[0], end_token=right_span[1]
                 )
-                local_parent_probs = self.get_register_probs(
+                local_parent_probs, _ = self.get_register_probs(
                     start_token=left_span[0], end_token=right_span[1]
                 )
                 scores.append(
@@ -258,11 +271,13 @@ class FastMultiScaleSegmenter:
         right_start = right_spans[0][0]
         right_end = right_spans[-1][1]
 
-        left_probs = self.get_register_probs(start_token=left_start, end_token=left_end)
-        right_probs = self.get_register_probs(
+        left_probs, _ = self.get_register_probs(
+            start_token=left_start, end_token=left_end
+        )
+        right_probs, _ = self.get_register_probs(
             start_token=right_start, end_token=right_end
         )
-        parent_probs = self.get_register_probs(
+        parent_probs, _ = self.get_register_probs(
             start_token=left_start, end_token=right_end
         )
 
@@ -445,31 +460,29 @@ class FastMultiScaleSegmenter:
         )
 
         if not combined_sent_spans:
-            return [(text, self.get_register_probs())]
+            probs, embeddings = self.get_register_probs()
+            return [(text, probs, embeddings)]
 
         segments = self.segment_recursive(text, combined_sentences, combined_sent_spans)
 
         if len(segments) == 1:
-            segments = [(text, self.get_register_probs())]
+            probs, embeddings = self.get_register_probs()
+            segments = [(text, probs, embeddings)]
 
         return segments
 
     def segment_recursive(
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
-    ) -> List[Tuple[str, np.ndarray]]:
-        """Recursively segment text using binary splitting."""
+    ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
+        # Similar to before, but now return (text, probs, embedding)
         if len(sentences) < 2 * self.config.min_sentences:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
-            return [
-                (
-                    span_text,
-                    self.get_register_probs(
-                        start_token=start_token, end_token=end_token
-                    ),
-                )
-            ]
+            probs, embedding = self.get_register_probs(
+                start_token=start_token, end_token=end_token
+            )
+            return [(span_text, probs, embedding)]
 
         split_idx, score = self.find_best_split(text, sentences, sent_spans)
 
@@ -477,14 +490,10 @@ class FastMultiScaleSegmenter:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
-            return [
-                (
-                    span_text,
-                    self.get_register_probs(
-                        start_token=start_token, end_token=end_token
-                    ),
-                )
-            ]
+            probs, embedding = self.get_register_probs(
+                start_token=start_token, end_token=end_token
+            )
+            return [(span_text, probs, embedding)]
 
         left_segments = self.segment_recursive(
             text, sentences[:split_idx], sent_spans[:split_idx]
@@ -572,21 +581,23 @@ def main(model_path, dataset_path, output_path):
 
             # If single segment, use its probs for both text_probs and segment probs
             if len(segments) == 1:
-                text_probs = segments[0][1]
+                text_probs, text_embedding = segments[0][1], segments[0][2]
             else:
                 # Otherwise get full document probs
-                text_probs = segmenter.get_register_probs(text)
+                text_probs, text_embedding = segmenter.get_register_probs(text)
 
             result = {
                 "id": i,
                 "label": row["label"],
                 "text_probs": [round(x, 4) for x in text_probs.tolist()],
+                "text_embedding": text_embedding.tolist(),
                 "segments": [
                     {
                         "text": text,
                         "probs": [round(x, 4) for x in probs.tolist()],
+                        "embedding": emb.tolist(),
                     }
-                    for text, probs in segments
+                    for text, probs, emb in segments
                 ],
             }
 
