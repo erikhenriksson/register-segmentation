@@ -76,6 +76,7 @@ class MultiScaleSegmenter:
             hidden = self.model.head(embedding.unsqueeze(0).to(torch.float16))
             logits = self.model.classifier(hidden)
             probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+            print(probs)
 
         # Cache the results
         self._prediction_cache[text] = (probs, embedding)
