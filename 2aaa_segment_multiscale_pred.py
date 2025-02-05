@@ -65,13 +65,15 @@ class MultiScaleSegmenter:
             attention_mask = inputs["attention_mask"][0]
 
             # Mean pooling
-            mask_expanded = attention_mask.unsqueeze(-1).expand(hidden.size()).float()
+            mask_expanded = (
+                attention_mask.unsqueeze(-1).expand(hidden.size()).to(torch.float16)
+            )
             sum_embeddings = torch.sum(hidden * mask_expanded, 0)
             sum_mask = torch.clamp(mask_expanded.sum(0), min=1e-9)
-            embedding = (sum_embeddings / sum_mask).detach()
+            embedding = (sum_embeddings / sum_mask).detach().to(torch.float16)
 
             # Get probabilities
-            hidden = self.model.head(embedding.unsqueeze(0))
+            hidden = self.model.head(embedding.unsqueeze(0).to(torch.float16))
             logits = self.model.classifier(hidden)
             probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
 
