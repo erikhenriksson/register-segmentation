@@ -60,15 +60,20 @@ class MultiScaleSegmenter:
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
         with torch.no_grad():
-            logits = self.model(**inputs).logits
-            probs = torch.sigmoid(logits).cpu().numpy()[0]
+            outputs = self.model(**inputs)
+            probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
+            last_hidden_state = outputs.hidden_states[-1]
 
-            print(probs)
-            pooled_output = []
+        attention_mask = inputs["attention_mask"].unsqueeze(
+            -1
+        )  # Expand for broadcasting
+        mean_embedding = (last_hidden_state * attention_mask).sum(
+            dim=1
+        ) / attention_mask.sum(dim=1)
 
         # Cache the results
-        self._prediction_cache[text] = (probs, pooled_output)
-        return probs, pooled_output
+        self._prediction_cache[text] = (probs, mean_embedding)
+        return probs, mean_embedding
 
     def prepare_document(self, text: str):
         """Store offset mapping for token/character conversion."""
