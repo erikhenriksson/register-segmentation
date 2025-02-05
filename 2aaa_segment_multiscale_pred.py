@@ -138,72 +138,6 @@ class MultiScaleSegmenter:
         char_end = self.offset_mapping[end_token - 1][1]
         return text[char_start:char_end]
 
-    def evaluate_split_individual(
-        self,
-        text: str,
-        left_spans: List[Tuple[int, int]],
-        right_spans: List[Tuple[int, int]],
-    ) -> float:
-        """Evaluate split by comparing regions right around the boundary."""
-        if not left_spans or not right_spans:
-            return 0.0
-
-        # Get windows around boundary (10% of total length)
-        INDIVIDUAL_WINDOW_PCT = 0.1
-
-        total_left_tokens = left_spans[-1][1] - left_spans[0][0]
-        total_right_tokens = right_spans[-1][1] - right_spans[0][0]
-
-        window_left_tokens = int(total_left_tokens * INDIVIDUAL_WINDOW_PCT)
-        window_right_tokens = int(total_right_tokens * INDIVIDUAL_WINDOW_PCT)
-
-        left_start = max(left_spans[-1][1] - window_left_tokens, left_spans[0][0])
-        right_end = min(right_spans[0][0] + window_right_tokens, right_spans[-1][1])
-
-        left_text = self.get_text_for_span(text, left_start, left_spans[-1][1])
-        right_text = self.get_text_for_span(text, right_spans[0][0], right_end)
-        boundary_text = self.get_text_for_span(text, left_start, right_end)
-
-        left_prob, _ = self.get_register_probs(left_text)
-        right_prob, _ = self.get_register_probs(right_text)
-        local_parent_probs, _ = self.get_register_probs(boundary_text)
-
-        return self.compute_register_distinctness(
-            left_prob, right_prob, local_parent_probs
-        )
-
-    def evaluate_split_pairs(
-        self,
-        text: str,
-        left_spans: List[Tuple[int, int]],
-        right_spans: List[Tuple[int, int]],
-    ) -> float:
-        """Evaluate split using larger windows around the boundary."""
-        if not left_spans or not right_spans:
-            return 0.0
-
-        # Get larger windows (25% of each segment)
-        PAIRS_WINDOW_PCT = 0.25
-
-        total_left_tokens = left_spans[-1][1] - left_spans[0][0]
-        total_right_tokens = right_spans[-1][1] - right_spans[0][0]
-
-        window_left_tokens = int(total_left_tokens * PAIRS_WINDOW_PCT)
-        window_right_tokens = int(total_right_tokens * PAIRS_WINDOW_PCT)
-
-        left_start = max(left_spans[-1][1] - window_left_tokens, left_spans[0][0])
-        right_end = min(right_spans[0][0] + window_right_tokens, right_spans[-1][1])
-
-        left_text = self.get_text_for_span(text, left_start, left_spans[-1][1])
-        right_text = self.get_text_for_span(text, right_spans[0][0], right_end)
-        parent_text = self.get_text_for_span(text, left_start, right_end)
-
-        left_probs, _ = self.get_register_probs(left_text)
-        right_probs, _ = self.get_register_probs(right_text)
-        parent_probs, _ = self.get_register_probs(parent_text)
-
-        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
-
     def evaluate_split_whole(
         self,
         text: str,
@@ -257,7 +191,7 @@ class MultiScaleSegmenter:
         lambda_weight = 0.5
         combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
 
-        return combined_score
+        return combined_score / (len(regs1) + len(regs2))
 
     def evaluate_split_window(
         self,
