@@ -79,20 +79,17 @@ class MultiScaleSegmenter:
             #    torch.float16
             # )  # [hidden_size]
 
-            pooled_output = pooled_output.to(
-                torch.float32
-            )  # Convert to float32 to prevent instability
-            logits = self.model.classifier(
-                pooled_output.unsqueeze(0)
-            )  # Classifier runs in float32
-            logits = logits.to(torch.float32)  # Ensure logits are in float32
+            # Ensure pooled_output is in float16 to match model dtype
+            pooled_output = pooled_output.to(torch.float16)
 
-            # Optional: Clamp extreme logits to prevent NaNs
-            logits = torch.clamp(logits, min=-10, max=10)
+            # Classifier runs in float16
+            logits = self.model.classifier(pooled_output.unsqueeze(0))
 
-            probs = (
-                torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
-            )  # Convert to numpy
+            # Convert logits to float32 for numerical stability
+            logits = logits.to(torch.float32)
+
+            # Apply sigmoid safely
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
             print(probs)
 
         # Cache the results
