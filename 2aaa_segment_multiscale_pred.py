@@ -45,49 +45,34 @@ class MultiScaleSegmenter:
         self._prediction_cache = {}
 
     def get_register_probs(self, text: str) -> Tuple[np.ndarray, torch.Tensor]:
-        """Get register probabilities and embedding for text by running full model."""
-        # Check cache first
-        if text in self._prediction_cache:
-            return self._prediction_cache[text]
-
+        """Get register probabilities for input text using mean pooling."""
+        # Tokenize
         inputs = self.tokenizer(
             text,
             truncation=True,
             max_length=self.config.max_length,
             return_tensors="pt",
-            add_special_tokens=True,
-        )
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+        ).to("cuda")
 
+        # Get model outputs
         with torch.no_grad():
-            # Get model outputs and extract last hidden state
             outputs = self.model(**inputs)
-            hidden_states = outputs.hidden_states[-1][0]  # [seq_len, hidden_size]
-            attention_mask = inputs["attention_mask"][0]  # [seq_len]
+            last_hidden = outputs.hidden_states[-1]  # [batch_size, seq_len, hidden_dim]
+            attention_mask = inputs["attention_mask"]  # [batch_size, seq_len]
 
-            # Mean pooling with attention mask
-            mask_expanded = (
-                attention_mask.unsqueeze(-1)
-                .expand(hidden_states.size())
-                .to(torch.float16)
+            # Mean pooling using masked_fill
+            last_hidden = last_hidden.masked_fill(
+                ~attention_mask[..., None].bool(), 0.0
             )
-            sum_embeddings = torch.sum(
-                hidden_states * mask_expanded, 0
-            )  # [hidden_size]
-            sum_mask = torch.clamp(mask_expanded.sum(0), min=1e-9)
-            pooled_output = (sum_embeddings / sum_mask).to(
-                torch.float16
-            )  # [hidden_size]
+            text_embedding = (
+                last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+            ).to(torch.float16)
 
-            # Get probabilities directly from classifier
-            logits = self.model.classifier(
-                pooled_output.unsqueeze(0)
-            )  # [1, num_labels]
-            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]  # [num_labels]
+            # Get probabilities
+            logits = self.model.classifier(text_embedding)
+            probs = torch.sigmoid(logits).cpu().numpy()[0][:8]
 
-        # Cache the results
-        self._prediction_cache[text] = (probs, pooled_output)
-        return probs, pooled_output
+        return probs, text_embedding[0]
 
     def prepare_document(self, text: str):
         """Store offset mapping for token/character conversion."""
