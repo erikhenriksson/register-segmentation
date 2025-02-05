@@ -328,31 +328,70 @@ class MultiScaleSegmenter:
         parent_regs = set(
             np.where(parent_probs >= self.config.classification_threshold)[0]
         )
-
+        # Reject if no registers above threshold
         if not (regs1 and regs2):
             return 0.0
+
+        # Reject if both segments have exactly same registers as parent
+        if regs1 == parent_regs == regs2:
+            return 0.0
+
+        # Reject if both segments have exactly same registers
+        if regs1 == regs2:
+            seg_diff = 0.0
 
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
         max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
 
-        if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
-            return 0
+        #if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
+        #    return 0
 
-        if regs1 == regs2:
-            seg_diff = 0.0
-        else:
-            diff_score = 0.0
-            diff_registers = (regs1 - regs2) | (regs2 - regs1)
-            for reg_idx in diff_registers:
-                diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
-            seg_diff = diff_score * (max_prob1 + max_prob2) / 2
+        
+        diff_score = 0.0
+        diff_registers = (regs1 - regs2) | (regs2 - regs1)
+        for reg_idx in diff_registers:
+            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+        seg_diff = diff_score * (max_prob1 + max_prob2) / 2
 
-        parent_diff = min(max_prob1 - max_prob_parent, max_prob2 - max_prob_parent)
-        lambda_weight = 1
+        parent_diff = (max_prob1 - max_prob_parent + max_prob2 - max_prob_parent) / 2
+        lambda_weight = 0.5
         combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
 
         return combined_score
+
+    def evaluate_split_window(
+        self,
+        text: str,
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
+        window_size: int,
+    ) -> float:
+        """Evaluate split using window_size groups on each side of boundary.
+
+        Args:
+            window_size: Number of groups to use on each side of boundary
+        Returns:
+            Score or None if not enough groups available
+        """
+        if len(left_spans) < window_size or len(right_spans) < window_size:
+            return None
+
+        # Get window_size groups from each side
+        left_window = (left_spans[-window_size][0], left_spans[-1][1])
+        right_window = (right_spans[0][0], right_spans[window_size - 1][1])
+
+        left_probs, _ = self.get_register_probs(
+            start_token=left_window[0], end_token=left_window[1]
+        )
+        right_probs, _ = self.get_register_probs(
+            start_token=right_window[0], end_token=right_window[1]
+        )
+        parent_probs, _ = self.get_register_probs(
+            start_token=left_window[0], end_token=right_window[1]
+        )
+
+        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
     def find_best_split(
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
@@ -362,26 +401,30 @@ class MultiScaleSegmenter:
         best_split = None
 
         for i in range(1, len(sentences)):
-            left_sents = sentences[:i]
-            right_sents = sentences[i:]
+            scores = []
             left_spans = sent_spans[:i]
             right_spans = sent_spans[i:]
 
-            score_individual = self.evaluate_split_individual(
-                text, left_sents, right_sents, left_spans, right_spans
-            )
-            score_pairs = self.evaluate_split_pairs(
-                text, left_sents, right_sents, left_spans, right_spans
-            )
-            score_whole = self.evaluate_split_whole(
-                text, left_sents, right_sents, left_spans, right_spans
-            )
+            # Always do whole segment comparison
+            score_whole = self.evaluate_split_whole(text, left_spans, right_spans)
+            scores.append(score_whole)
 
-            total_score = (
-                self.config.scale_weights["individual"] * score_individual
-                + self.config.scale_weights["pairs"] * score_pairs
-                + self.config.scale_weights["whole"] * score_whole
+            # Short window (2+2)
+            score_short = self.evaluate_split_window(
+                text, left_spans, right_spans, window_size=2
             )
+            if score_short is not None:
+                scores.append(score_short)
+
+            # Long window (4+4)
+            score_long = self.evaluate_split_window(
+                text, left_spans, right_spans, window_size=4
+            )
+            if score_long is not None:
+                scores.append(score_long)
+
+            # Average available scores
+            total_score = np.mean(scores) if scores else 0.0
 
             if total_score > best_score:
                 best_score = total_score
