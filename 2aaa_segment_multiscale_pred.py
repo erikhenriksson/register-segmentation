@@ -60,26 +60,34 @@ class MultiScaleSegmenter:
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
         with torch.no_grad():
+            # Get model outputs and extract last hidden state
             outputs = self.model(**inputs)
-            last_hidden = outputs.hidden_states[-1]  # [batch_size, seq_len, hidden_dim]
-            attention_mask = inputs["attention_mask"]  # [batch_size, seq_len]
+            hidden_states = outputs.hidden_states[-1][0]  # [seq_len, hidden_size]
+            attention_mask = inputs["attention_mask"][0]  # [seq_len]
 
-            # Mean pooling using masked_fill
-            last_hidden = last_hidden.masked_fill(
-                ~attention_mask[..., None].bool(), 0.0
+            # Mean pooling with attention mask
+            mask_expanded = (
+                attention_mask.unsqueeze(-1)
+                .expand(hidden_states.size())
+                .to(torch.float16)
             )
-            text_embedding = (
-                last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
-            ).to(torch.float16)
+            sum_embeddings = torch.sum(
+                hidden_states * mask_expanded, 0
+            )  # [hidden_size]
+            sum_mask = torch.clamp(mask_expanded.sum(0), min=1e-9)
+            pooled_output = (sum_embeddings / sum_mask).to(
+                torch.float16
+            )  # [hidden_size]
 
-            # Important: Go through model.head before classifier
-            hidden = self.model.head(text_embedding)
-            logits = self.model.classifier(hidden)
-            probs = torch.sigmoid(logits).cpu().numpy()[0][:8]
+            # Get probabilities directly from classifier
+            logits = self.model.classifier(
+                pooled_output.unsqueeze(0)
+            )  # [1, num_labels]
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]  # [num_labels]
 
         # Cache the results
-        self._prediction_cache[text] = (probs, text_embedding)
-        return probs, text_embedding
+        self._prediction_cache[text] = (probs, pooled_output)
+        return probs, pooled_output
 
     def prepare_document(self, text: str):
         """Store offset mapping for token/character conversion."""
