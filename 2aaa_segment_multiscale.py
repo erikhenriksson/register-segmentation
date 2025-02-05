@@ -296,12 +296,13 @@ class MultiScaleSegmenter:
     def evaluate_split_whole(
         self,
         text: str,
-        left_sents: List[str],
-        right_sents: List[str],
         left_spans: List[Tuple[int, int]],
         right_spans: List[Tuple[int, int]],
     ) -> float:
         """Evaluate split comparing whole segments."""
+        if not left_spans or not right_spans:
+            return 0.0
+
         left_start = left_spans[0][0]
         left_end = left_spans[-1][1]
         right_start = right_spans[0][0]
@@ -344,10 +345,9 @@ class MultiScaleSegmenter:
         max_prob2 = max(probs2)
         max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
 
-        #if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
+        # if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
         #    return 0
 
-        
         diff_score = 0.0
         diff_registers = (regs1 - regs2) | (regs2 - regs1)
         for reg_idx in diff_registers:
