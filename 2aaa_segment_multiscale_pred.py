@@ -60,27 +60,34 @@ class MultiScaleSegmenter:
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
         with torch.no_grad():
+            # Get model outputs and extract last hidden state
             outputs = self.model(**inputs)
-            hidden = outputs.hidden_states[-1][0]
-            attention_mask = inputs["attention_mask"][0]
+            hidden_states = outputs.hidden_states[-1][0]  # [seq_len, hidden_size]
+            attention_mask = inputs["attention_mask"][0]  # [seq_len]
 
-            # Mean pooling
+            # Mean pooling with attention mask
             mask_expanded = (
-                attention_mask.unsqueeze(-1).expand(hidden.size()).to(torch.float16)
+                attention_mask.unsqueeze(-1)
+                .expand(hidden_states.size())
+                .to(torch.float16)
             )
-            sum_embeddings = torch.sum(hidden * mask_expanded, 0)
+            sum_embeddings = torch.sum(
+                hidden_states * mask_expanded, 0
+            )  # [hidden_size]
             sum_mask = torch.clamp(mask_expanded.sum(0), min=1e-9)
-            embedding = (sum_embeddings / sum_mask).detach().to(torch.float16)
+            pooled_output = (sum_embeddings / sum_mask).to(
+                torch.float16
+            )  # [hidden_size]
 
-            # Get probabilities
-            hidden = self.model.head(embedding.unsqueeze(0).to(torch.float16))
-            logits = self.model.classifier(hidden)
-            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
-            print(probs)
+            # Get probabilities directly from classifier
+            logits = self.model.classifier(
+                pooled_output.unsqueeze(0)
+            )  # [1, num_labels]
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]  # [num_labels]
 
         # Cache the results
-        self._prediction_cache[text] = (probs, embedding)
-        return probs, embedding
+        self._prediction_cache[text] = (probs, pooled_output)
+        return probs, pooled_output
 
     def prepare_document(self, text: str):
         """Store offset mapping for token/character conversion."""
