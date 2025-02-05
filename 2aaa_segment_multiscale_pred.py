@@ -45,16 +45,20 @@ class MultiScaleSegmenter:
         self._prediction_cache = {}
 
     def get_register_probs(self, text: str) -> Tuple[np.ndarray, torch.Tensor]:
-        """Get register probabilities for input text using mean pooling."""
-        # Tokenize
+        """Get register probabilities and embedding for text by running full model."""
+        # Check cache first
+        if text in self._prediction_cache:
+            return self._prediction_cache[text]
+
         inputs = self.tokenizer(
             text,
             truncation=True,
             max_length=self.config.max_length,
             return_tensors="pt",
-        ).to("cuda")
+            add_special_tokens=True,
+        )
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
-        # Get model outputs
         with torch.no_grad():
             outputs = self.model(**inputs)
             last_hidden = outputs.hidden_states[-1]  # [batch_size, seq_len, hidden_dim]
@@ -68,11 +72,14 @@ class MultiScaleSegmenter:
                 last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
             ).to(torch.float16)
 
-            # Get probabilities
-            logits = self.model.classifier(text_embedding)
+            # Important: Go through model.head before classifier
+            hidden = self.model.head(text_embedding)
+            logits = self.model.classifier(hidden)
             probs = torch.sigmoid(logits).cpu().numpy()[0][:8]
 
-        return probs, text_embedding[0]
+        # Cache the results
+        self._prediction_cache[text] = (probs, text_embedding)
+        return probs, text_embedding
 
     def prepare_document(self, text: str):
         """Store offset mapping for token/character conversion."""
