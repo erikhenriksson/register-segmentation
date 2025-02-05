@@ -29,7 +29,7 @@ class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path,
-            torch_dtype=torch.float16,
+            # torch_dtype=torch.float16,
             output_hidden_states=True,
         ).to("cuda")
         self.model.eval()
@@ -67,17 +67,17 @@ class MultiScaleSegmenter:
 
             # Mean pooling with attention mask
             mask_expanded = (
-                attention_mask.unsqueeze(-1)
-                .expand(hidden_states.size())
-                .to(torch.float16)
+                attention_mask.unsqueeze(-1).expand(hidden_states.size())
+                # .to(torch.float16)
             )
             sum_embeddings = torch.sum(
                 hidden_states * mask_expanded, 0
             )  # [hidden_size]
             sum_mask = torch.clamp(mask_expanded.sum(0), min=1e-9)
-            pooled_output = (sum_embeddings / sum_mask).to(
-                torch.float16
-            )  # [hidden_size]
+            pooled_output = sum_embeddings / sum_mask
+            # .to(
+            #    torch.float16
+            # )  # [hidden_size]
 
             # Get probabilities directly from classifier
             logits = self.model.classifier(
