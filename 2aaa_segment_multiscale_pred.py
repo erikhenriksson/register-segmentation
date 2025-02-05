@@ -29,7 +29,7 @@ class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path,
-            torch_dtype=torch.bfloat16,
+            # torch_dtype=torch.bfloat16,
             output_hidden_states=True,
         ).to("cuda")
         self.model.eval()
@@ -80,13 +80,13 @@ class MultiScaleSegmenter:
             # )  # [hidden_size]
 
             # Ensure pooled_output is in float16 to match model dtype
-            pooled_output = pooled_output.to(torch.bfloat16)
+            # pooled_output = pooled_output.to(torch.bfloat16)
 
             # Classifier runs in float16
             logits = self.model.classifier(pooled_output.unsqueeze(0))
 
             # Convert logits to float32 for numerical stability
-            logits = logits.to(torch.bfloat32)
+            # logits = logits.to(torch.bfloat32)
 
             # Apply sigmoid safely
             probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
