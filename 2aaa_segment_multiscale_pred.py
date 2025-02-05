@@ -84,6 +84,7 @@ class MultiScaleSegmenter:
                 pooled_output.unsqueeze(0)
             )  # [1, num_labels]
             probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]  # [num_labels]
+            print(probs)
 
         # Cache the results
         self._prediction_cache[text] = (probs, pooled_output)
