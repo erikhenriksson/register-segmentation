@@ -207,53 +207,40 @@ class MultiScaleSegmenter:
         right_length: int = 0,
         parent_length: int = 0,
     ) -> float:
-        """Compute how distinct two spans are in terms of their register probabilities,
-        normalized by number of predicted labels."""
+        """Compute how distinct two spans are in terms of their register probabilities."""
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
-        parent_regs = (
-            set(np.where(parent_probs >= self.config.classification_threshold)[0])
-            if parent_probs is not None
-            else set()
-        )
 
-        # Reject if no registers above threshold
+        print(f"    Registers left: {[LABELS[i] for i in regs1]}")
+        print(f"    Registers right: {[LABELS[i] for i in regs2]}")
+
+        # Early rejections
         if not (regs1 and regs2):
+            print("    Rejected: No registers above threshold")
             return 0.0
-
-        # Reject if both segments have exactly same registers as parent
-        if regs1 == parent_regs == regs2:
-            return 0.0
-
-        # Reject if both segments have exactly same registers
         if regs1 == regs2:
+            print("    Rejected: Identical registers")
             return 0.0
+
+        # Score computation
+        diff_score = 0.0
+        diff_registers = (regs1 - regs2) | (regs2 - regs1)
+        print(f"    Different registers: {[LABELS[i] for i in diff_registers]}")
+
+        for reg_idx in diff_registers:
+            prob_diff = abs(probs1[reg_idx] - probs2[reg_idx])
+            diff_score += prob_diff
+            print(f"    {LABELS[reg_idx]}: diff = {prob_diff:.4f}")
 
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
+        print(f"    Max probs: {max_prob1:.4f} | {max_prob2:.4f}")
 
-        diff_score = 0.0
-        diff_registers = (regs1 - regs2) | (regs2 - regs1)
-        for reg_idx in diff_registers:
-            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
-
-        diff_1 = diff_score * max_prob1
-        diff_2 = diff_score * max_prob2
-
-        scaled_diff_1 = diff_1 / (2 ** len(regs1))
-        scaled_diff_2 = diff_2 / (2 ** len(regs2))
-
-        length_penalized_diff_1 = scaled_diff_1 * (left_length / 8192)
-        length_penalized_diff_2 = scaled_diff_2 * (right_length / 8192)
-
-        return (length_penalized_diff_1 + length_penalized_diff_2) / 2
-
-        seg_diff = diff_score * (max_prob1 + max_prob2) / 2
-
-        # Normalize by total number of predicted labels
         total_labels = 2 ** (len(regs1) + len(regs2))
+        final_score = diff_score * (max_prob1 + max_prob2) / total_labels
+        print(f"    Final score: {final_score:.4f}")
 
-        return seg_diff / total_labels
+        return final_score
 
     def compute_register_distinctness_prev(
         self,
@@ -400,53 +387,66 @@ class MultiScaleSegmenter:
         best_score = 0
         best_split = None
 
+        print("\nEvaluating potential splits:")  # Debug header
+
         for i in range(1, len(sentences)):
-            # Check minimum token counts for both potential segments
             left_spans = sent_spans[:i]
             right_spans = sent_spans[i:]
 
             left_tokens = left_spans[-1][1] - left_spans[0][0]
             right_tokens = right_spans[-1][1] - right_spans[0][0]
 
-            # Skip this split point if either segment would be too small
+            # Skip if segments too small
             if (
                 left_tokens < self.config.min_tokens
                 or right_tokens < self.config.min_tokens
             ):
                 continue
 
+            print(f"\nSplit point {i} (tokens: {left_tokens} | {right_tokens}):")
             scores = []
 
-            # Always do whole segment comparison
+            # Whole segment comparison
             score_whole = self.evaluate_split_whole(text, left_spans, right_spans)
             if score_whole == 0:
+                print("  Whole: 0 (rejected)")
                 continue
             scores.append(score_whole * self.config.scale_weights["whole"])
+            print(f"  Whole: {score_whole:.4f} (weighted: {scores[-1]:.4f})")
 
-            # Short window (2+2)
+            # Short window
             score_short = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=2
             )
             if score_short is not None:
                 scores.append(score_short * self.config.scale_weights["short"])
+                print(f"  Short: {score_short:.4f} (weighted: {scores[-1]:.4f})")
 
-            # Long window (4+4)
+            # Long window
             score_long = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=4
             )
             if score_long is not None:
                 scores.append(score_long * self.config.scale_weights["long"])
+                print(f"  Long: {score_long:.4f} (weighted: {scores[-1]:.4f})")
 
             total_score = np.mean(scores) if scores else 0.0
+            print(f"  Total score: {total_score:.4f}")
 
             if total_score > best_score:
                 best_score = total_score
                 best_split = i
+                print("  -> New best score!")
 
+        print(f"\nFinal best split: {best_split} with score {best_score:.4f}")
         return best_split, best_score
 
     def segment_recursive(
-        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+        self,
+        text: str,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        depth: int = 0,
     ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
         """Recursively segment text using binary splitting."""
         total_tokens = sent_spans[-1][1] - sent_spans[0][0]
@@ -461,10 +461,16 @@ class MultiScaleSegmenter:
             )
             return [(span_text, probs, embedding)]
 
-        split_idx, score = self.find_best_split(text, sentences, sent_spans)
+        split_idx, score = self.find_best_split(
+            text, sentences, sent_spans, depth
+        )  # Pass depth
 
-        # If no valid split found (including due to minimum token constraints)
-        if split_idx is None or score < self.config.min_register_diff:
+        # Increase threshold with depth
+        min_threshold = self.config.min_register_diff * (
+            1 + depth * 0.5
+        )  # Exponentially harder to split
+
+        if split_idx is None or score < min_threshold:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
@@ -474,13 +480,13 @@ class MultiScaleSegmenter:
             return [(span_text, probs, embedding)]
 
         left_segments = self.segment_recursive(
-            text, sentences[:split_idx], sent_spans[:split_idx]
+            text, sentences[:split_idx], sent_spans[:split_idx], depth + 1
         )
         right_segments = self.segment_recursive(
-            text, sentences[split_idx:], sent_spans[split_idx:]
+            text, sentences[split_idx:], sent_spans[split_idx:], depth + 1
         )
 
-        return left_segments + right_segments
+    return left_segments + right_segments
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
         """Main entry point for text segmentation."""
