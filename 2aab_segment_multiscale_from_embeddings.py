@@ -26,7 +26,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 64  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.5
+    min_register_diff: float = 0
     scale_weights: Dict[str, float] = None
 
     def __post_init__(self):
