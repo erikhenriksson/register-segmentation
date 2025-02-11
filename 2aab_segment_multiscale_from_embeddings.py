@@ -234,8 +234,8 @@ class MultiScaleSegmenter:
         )
 
         # Length penalty: multiply by average length ratio
-        avg_length_ratio = ((left_length + right_length) / 2) / 8192
-        score = score * avg_length_ratio
+        min_length_ratio = min(left_length, right_length) / 8192
+        score = score**min_length_ratio
 
         return score
 
