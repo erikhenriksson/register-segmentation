@@ -345,6 +345,8 @@ class MultiScaleSegmenter:
 
             # Always do whole segment comparison
             score_whole = self.evaluate_split_whole(text, left_spans, right_spans)
+            if score_whole == 0:
+                continue
             scores.append(score_whole)
 
             # Short window (2+2)
