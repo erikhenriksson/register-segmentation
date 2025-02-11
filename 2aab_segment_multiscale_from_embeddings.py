@@ -211,34 +211,34 @@ class MultiScaleSegmenter:
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
 
-        print(f"    Registers left: {[LABELS[i] for i in regs1]}")
-        print(f"    Registers right: {[LABELS[i] for i in regs2]}")
+        # print(f"    Registers left: {[LABELS[i] for i in regs1]}")
+        # print(f"    Registers right: {[LABELS[i] for i in regs2]}")
 
         # Early rejections
         if not (regs1 and regs2):
-            print("    Rejected: No registers above threshold")
+            # print("    Rejected: No registers above threshold")
             return 0.0
         if regs1 == regs2:
-            print("    Rejected: Identical registers")
+            # print("    Rejected: Identical registers")
             return 0.0
 
         # Score computation
         diff_score = 0.0
         diff_registers = (regs1 - regs2) | (regs2 - regs1)
-        print(f"    Different registers: {[LABELS[i] for i in diff_registers]}")
+        # print(f"    Different registers: {[LABELS[i] for i in diff_registers]}")
 
         for reg_idx in diff_registers:
             prob_diff = abs(probs1[reg_idx] - probs2[reg_idx])
             diff_score += prob_diff
-            print(f"    {LABELS[reg_idx]}: diff = {prob_diff:.4f}")
+            # print(f"    {LABELS[reg_idx]}: diff = {prob_diff:.4f}")
 
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
-        print(f"    Max probs: {max_prob1:.4f} | {max_prob2:.4f}")
+        # print(f"    Max probs: {max_prob1:.4f} | {max_prob2:.4f}")
 
         total_labels = 2 ** (len(regs1) + len(regs2))
         final_score = diff_score * (max_prob1 + max_prob2) / total_labels
-        print(f"    Final score: {final_score:.4f}")
+        # print(f"    Final score: {final_score:.4f}")
 
         return final_score
 
