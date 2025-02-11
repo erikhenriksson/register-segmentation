@@ -203,7 +203,13 @@ class MultiScaleSegmenter:
         )
 
     def compute_register_distinctness(
-        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
+        self,
+        probs1: np.ndarray,
+        probs2: np.ndarray,
+        parent_probs: np.ndarray = None,
+        left_length: int = 0,
+        right_length: int = 0,
+        parent_length: int = 0,
     ) -> float:
         """Compute how distinct two spans are in terms of their register probabilities,
         normalized by number of predicted labels."""
