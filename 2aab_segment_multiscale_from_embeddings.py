@@ -239,6 +239,36 @@ class MultiScaleSegmenter:
         return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
     def compute_register_distinctness(
+        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray
+    ) -> float:
+        """Compute how distinct two spans are in terms of their register probabilities."""
+        # Get active registers and their probabilities
+        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
+        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = set(
+            np.where(parent_probs >= self.config.classification_threshold)[0]
+        )
+
+        if not (regs1 and regs2):  # If either span has no active registers
+            return 0.0
+        if regs1 == regs2:  # If both spans have identical active registers
+            return 0.0
+
+        # Average of above-threshold probabilities - rewards fewer, stronger signals
+        score1 = sum(probs1[list(regs1)]) / len(regs1) if regs1 else 0
+        score2 = sum(probs2[list(regs2)]) / len(regs2) if regs2 else 0
+        parent_score = (
+            sum(parent_probs[list(parent_regs)]) / len(parent_regs)
+            if parent_regs
+            else 0
+        )
+
+        # Improvement over parent times number of different registers
+        score = (((score1 + score2) / 2) - parent_score) * len(regs1 ^ regs2)
+
+        return score
+
+    def compute_register_distinctness_old(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
         """Compute how distinct two spans are in terms of their register probabilities."""
