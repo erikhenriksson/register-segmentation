@@ -248,7 +248,7 @@ class MultiScaleSegmenter:
         score = (
             (((score1 + score2) / 2) - parent_score)
             # * len(regs1 ^ regs2)
-            / (len(list(regs1) - 1 + list(regs2)) - 1)
+            / (len(list(regs1)) - 1 + len(list(regs2)) - 1)
         )
 
         # Length penalty: multiply by average length ratio
