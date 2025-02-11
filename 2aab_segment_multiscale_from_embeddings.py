@@ -412,7 +412,7 @@ class MultiScaleSegmenter:
             ):
                 continue
 
-            print(f"\nSplit point {i} (tokens: {left_tokens} | {right_tokens}):")
+            # print(f"\nSplit point {i} (tokens: {left_tokens} | {right_tokens}):")
             scores = []
 
             # Whole segment comparison with depth penalty
@@ -423,9 +423,9 @@ class MultiScaleSegmenter:
                 # print("  Whole: 0 (rejected)")
                 continue
             scores.append(score_whole * self.config.scale_weights["whole"])
-            print(
-                f"  Whole: {score_whole/depth_penalty:.4f} (raw) -> {score_whole:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
-            )
+            # print(
+            #    f"  Whole: {score_whole/depth_penalty:.4f} (raw) -> {score_whole:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
+            # )
 
             # Short window with depth penalty
             score_short = self.evaluate_split_window(
