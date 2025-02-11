@@ -236,6 +236,14 @@ class MultiScaleSegmenter:
             else 0
         )
 
+        max_seg1 = max(probs1)
+        max_seg2 = max(probs2)
+        max_parent = max(parent_probs)
+
+        return min(max_seg1 - max_parent, max_seg2 - max_parent)
+
+        # # # #
+
         # Improvement over parent times number of different registers
         score = (
             (((score1 + score2) / 2) - parent_score)
