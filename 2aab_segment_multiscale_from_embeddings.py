@@ -1,14 +1,23 @@
 import sys
 import json
 import glob
-import pandas as pd
-import numpy as np
 from dataclasses import dataclass
 from typing import List, Tuple, Dict
-from nltk.tokenize import sent_tokenize, PunktSentenceTokenizer
+
+print("imported basic libraries")
+import pandas as pd
+import numpy as np
+
+print("imported pandas and numpy")
+from nltk.tokenize import PunktSentenceTokenizer
+
+print("imported PunktSentenceTokenizer")
 import torch
+
+print("imported torch")
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+print("imported transformer libraries")
 LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
 
