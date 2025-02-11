@@ -191,9 +191,15 @@ class MultiScaleSegmenter:
         # compute lengths of segments
         left_length = left_end - left_start
         right_length = right_end - right_start
+        parent_length = right_end - left_start
 
         return self.compute_register_distinctness(
-            left_probs, right_probs, parent_probs, left_length, right_length
+            left_probs,
+            right_probs,
+            parent_probs,
+            left_length,
+            right_length,
+            parent_length,
         )
 
     def compute_register_distinctness(
@@ -203,6 +209,7 @@ class MultiScaleSegmenter:
         parent_probs: np.ndarray,
         left_length: int,
         right_length: int,
+        parent_length,
     ) -> float:
         """Compute how distinct two spans are in terms of their register probabilities."""
         # Get active registers and their probabilities
@@ -234,8 +241,8 @@ class MultiScaleSegmenter:
         )
 
         # Length penalty: multiply by average length ratio
-        # avg_length_ratio = ((left_length + right_length) / 2) / 8192
-        # score = score * avg_length_ratio
+        avg_length_ratio = ((left_length + right_length) / 2) / parent_length
+        score = score * avg_length_ratio
 
         return score
 
@@ -301,9 +308,15 @@ class MultiScaleSegmenter:
         # compute lengths of segments
         left_length = left_window[1] - left_window[0]
         right_length = right_window[1] - right_window[0]
+        parent_length = right_window[1] - left_window[0]
 
         return self.compute_register_distinctness(
-            left_probs, right_probs, parent_probs, left_length, right_length
+            left_probs,
+            right_probs,
+            parent_probs,
+            left_length,
+            right_length,
+            parent_length,
         )
 
     def find_best_split(
