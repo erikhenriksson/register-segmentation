@@ -253,8 +253,8 @@ class MultiScaleSegmenter:
         )
         """
 
-        score1 = score1 - parent_score / len(regs1)
-        score2 = score2 - parent_score / len(regs2)
+        score1 = (score1 - parent_score) / len(regs1)
+        score2 = (score2 - parent_score) / len(regs2)
 
         score1 = score1 * (left_length / 8192)
         score2 = score2 * (right_length / 8192)
