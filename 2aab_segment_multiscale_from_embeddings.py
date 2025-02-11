@@ -245,11 +245,21 @@ class MultiScaleSegmenter:
         )
 
         # Improvement over parent times number of different registers
+        """
         score = (
             (((score1 + score2) / 2) - parent_score)
             # * len(regs1 ^ regs2)
             / (len(list(regs1)) - 1 + len(list(regs2)) - 1)
         )
+        """
+
+        score1 = score1 - parent_score / len(regs1)
+        score2 = score2 - parent_score / len(regs2)
+
+        score1 = score1 * (left_length / 8192)
+        score2 = score2 * (right_length / 8192)
+
+        return (score1 + score2) / 2
 
         # Length penalty: multiply by average length ratio
         # avg_length_ratio = ((left_length + right_length) / 2) / parent_length
@@ -375,11 +385,6 @@ class MultiScaleSegmenter:
                 scores.append(score_long)
 
             total_score = np.mean(scores) if scores else 0.0
-
-            # Penalize by shortness
-            avg_length = (left_tokens + right_tokens) / 2
-            length_penalty = avg_length / 8192
-            total_score *= length_penalty
 
             if total_score > best_score:
                 best_score = total_score
