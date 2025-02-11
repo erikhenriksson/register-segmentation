@@ -367,6 +367,7 @@ class MultiScaleSegmenter:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
+            print("TOO SHORT:", span_text)
             probs, embedding = self.get_register_probs(
                 start_token=start_token, end_token=end_token
             )
