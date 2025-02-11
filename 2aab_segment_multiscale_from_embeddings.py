@@ -224,14 +224,16 @@ class MultiScaleSegmenter:
         if regs1 == regs2:  # If both spans have identical active registers
             return 0.0
 
-        if len(regs1) > 1 or len(regs2) > 1:
-            return 0
+        # if len(regs1) > 1 or len(regs2) > 1:
+        #    return 0
 
         max_seg1 = max(probs1)
         max_seg2 = max(probs2)
         max_parent = max(parent_probs)
 
-        return min(max_seg1 - max_parent, max_seg2 - max_parent)
+        return min(max_seg1 - max_parent, max_seg2 - max_parent) / (
+            (len(regs1) - 1 + len(regs2) - 1)
+        )
 
         # Average of above-threshold probabilities - rewards fewer, stronger signals
         score1 = sum(probs1[list(regs1)]) / len(regs1) if regs1 else 0
