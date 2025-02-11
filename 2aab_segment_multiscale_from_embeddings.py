@@ -236,10 +236,21 @@ class MultiScaleSegmenter:
             start_token=left_start, end_token=right_end
         )
 
-        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
+        # compute lengths of segments
+        left_length = left_end - left_start
+        right_length = right_end - right_start
+
+        return self.compute_register_distinctness(
+            left_probs, right_probs, parent_probs, left_length, right_length
+        )
 
     def compute_register_distinctness(
-        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray
+        self,
+        probs1: np.ndarray,
+        probs2: np.ndarray,
+        parent_probs: np.ndarray,
+        left_length: int,
+        right_length: int,
     ) -> float:
         """Compute how distinct two spans are in terms of their register probabilities."""
         # Get active registers and their probabilities
@@ -269,6 +280,10 @@ class MultiScaleSegmenter:
             * len(regs1 ^ regs2)
             / len(list(regs1) + list(regs2))
         )
+
+        # Length penalty: multiply by average length ratio
+        avg_length_ratio = ((left_length + right_length) / 2) / 8192
+        score = score * avg_length_ratio
 
         return score
 
@@ -331,7 +346,13 @@ class MultiScaleSegmenter:
             start_token=left_window[0], end_token=right_window[1]
         )
 
-        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
+        # compute lengths of segments
+        left_length = left_window[1] - left_window[0]
+        right_length = right_window[1] - right_window[0]
+
+        return self.compute_register_distinctness(
+            left_probs, right_probs, parent_probs, left_length, right_length
+        )
 
     def find_best_split(
         self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
