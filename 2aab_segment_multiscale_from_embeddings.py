@@ -26,7 +26,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 64  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0
+    min_register_diff: float = 0.001
     scale_weights = {"short": 0, "long": 0, "whole": 0.25}
 
 
@@ -395,9 +395,9 @@ class MultiScaleSegmenter:
         depth_penalty = 1.0 / (
             1 + depth
         )  # Or could use 1.0 / (2 ** depth) for more aggressive
-        print(
-            f"\nEvaluating potential splits (depth={depth}, penalty={depth_penalty:.4f}):"
-        )
+        # print(
+        #    f"\nEvaluating potential splits (depth={depth}, penalty={depth_penalty:.4f}):"
+        # )
 
         for i in range(1, len(sentences)):
             left_spans = sent_spans[:i]
@@ -450,14 +450,14 @@ class MultiScaleSegmenter:
                 # )
 
             total_score = np.mean(scores) if scores else 0.0
-            print(f"  Total score: {total_score:.4f}")
+            # print(f"  Total score: {total_score:.4f}")
 
             if total_score > best_score:
                 best_score = total_score
                 best_split = i
-                print("  -> New best score!")
+                # print("  -> New best score!")
 
-        print(f"\nFinal best split: {best_split} with score {best_score:.4f}")
+        # print(f"\nFinal best split: {best_split} with score {best_score:.4f}")
         return best_split, best_score
 
     def segment_recursive(
