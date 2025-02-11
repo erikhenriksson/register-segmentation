@@ -441,7 +441,7 @@ class MultiScaleSegmenter:
         # Merge short sentences into adequately-sized groups
         # sentences, sent_spans = self.merge_short_sentences(sentences, sent_spans)
 
-        # segments = self.segment_recursive(text, sentences, sent_spans)
+        segments = self.segment_recursive(text, sentences, sent_spans)
 
         if len(segments) == 1:
             probs, embedding = self.get_register_probs()
