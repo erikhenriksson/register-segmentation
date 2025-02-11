@@ -24,7 +24,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 @dataclass
 class MultiScaleConfig:
     max_length: int = 8192
-    min_tokens: int = 64  # Minimum token count per segment
+    min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.0
     scale_weights: Dict[str, float] = None
@@ -270,7 +270,7 @@ class MultiScaleSegmenter:
         parent_diff = (max_prob1 - max_prob_parent + max_prob2 - max_prob_parent) / 2
         lambda_weight = 0.5
         combined_score = lambda_weight * seg_diff + (1 - lambda_weight) * parent_diff
-
+        print(combined_score)
         return combined_score
 
     def evaluate_split_window(
