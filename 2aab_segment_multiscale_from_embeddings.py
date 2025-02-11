@@ -378,7 +378,7 @@ class MultiScaleSegmenter:
 
             # Penalize by shortness
             avg_length = (left_tokens + right_tokens) / 2
-            length_penalty = avg_length / len(self.tokens)
+            length_penalty = avg_length / 8192
             total_score *= length_penalty
 
             if total_score > best_score:
