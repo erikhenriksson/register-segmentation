@@ -241,8 +241,8 @@ class MultiScaleSegmenter:
         )
 
         # Length penalty: multiply by average length ratio
-        avg_length_ratio = ((left_length + right_length) / 2) / parent_length
-        score = score * avg_length_ratio
+        # avg_length_ratio = ((left_length + right_length) / 2) / parent_length
+        # score = score * avg_length_ratio
 
         return score
 
@@ -362,6 +362,11 @@ class MultiScaleSegmenter:
                 scores.append(score_long)
 
             total_score = np.mean(scores) if scores else 0.0
+
+            # Penalize by shortness
+            avg_length = (left_tokens + right_tokens) / 2
+            length_penalty = 1 - (avg_length / len(self.tokens))
+            total_score *= length_penalty
 
             if total_score > best_score:
                 best_score = total_score
