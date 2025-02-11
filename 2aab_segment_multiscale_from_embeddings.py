@@ -236,10 +236,23 @@ class MultiScaleSegmenter:
         diff_registers = (regs1 - regs2) | (regs2 - regs1)
         for reg_idx in diff_registers:
             diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+
+        diff_1 = diff_score * max_prob1
+        diff_2 = diff_score * max_prob2
+
+        scaled_diff_1 = diff_1 / (2 ** len(regs1))
+        scaled_diff_2 = diff_2 / (2 ** len(regs2))
+
+        length_penalized_diff_1 = scaled_diff_1 * (left_length / 8192)
+        length_penalized_diff_2 = scaled_diff_2 * (right_length / 8192)
+
+        return (length_penalized_diff_1 + length_penalized_diff_2) / 2
+
         seg_diff = diff_score * (max_prob1 + max_prob2) / 2
 
         # Normalize by total number of predicted labels
         total_labels = 2 ** (len(regs1) + len(regs2))
+
         return seg_diff / total_labels
 
     def compute_register_distinctness_prev(
