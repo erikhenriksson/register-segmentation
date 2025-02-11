@@ -27,11 +27,7 @@ class MultiScaleConfig:
     min_tokens: int = 64  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0
-    scale_weights: Dict[str, float] = None
-
-    def __post_init__(self):
-        if self.scale_weights is None:
-            self.scale_weights = {"short": 1 / 3, "long": 1 / 3, "whole": 1 / 3}
+    scale_weights = {"short": 1 / 3, "long": 1 / 3, "whole": 1 / 3}
 
 
 class MultiScaleSegmenter:
