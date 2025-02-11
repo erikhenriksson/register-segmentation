@@ -31,7 +31,7 @@ class MultiScaleConfig:
 
     def __post_init__(self):
         if self.scale_weights is None:
-            self.scale_weights = {"individual": 1 / 3, "pairs": 1 / 3, "whole": 1 / 3}
+            self.scale_weights = {"individual": 0, "pairs": 0, "whole": 1 / 3}
 
 
 class MultiScaleSegmenter:
@@ -226,6 +226,12 @@ class MultiScaleSegmenter:
 
         if len(regs1) > 1 or len(regs2) > 1:
             return 0
+
+        max_seg1 = max(probs1[0])
+        max_seg2 = max(probs2[1])
+        max_parent = max(parent_probs)
+
+        return min(max_seg1 - max_parent, max_seg2 - max_parent)
 
         # Average of above-threshold probabilities - rewards fewer, stronger signals
         score1 = sum(probs1[list(regs1)]) / len(regs1) if regs1 else 0
