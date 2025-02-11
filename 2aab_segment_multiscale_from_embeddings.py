@@ -31,7 +31,7 @@ class MultiScaleConfig:
 
     def __post_init__(self):
         if self.scale_weights is None:
-            self.scale_weights = {"individual": 0, "pairs": 0, "whole": 1 / 3}
+            self.scale_weights = {"short": 1 / 3, "long": 1 / 3, "whole": 1 / 3}
 
 
 class MultiScaleSegmenter:
@@ -203,6 +203,44 @@ class MultiScaleSegmenter:
         )
 
     def compute_register_distinctness(
+        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
+    ) -> float:
+        """Compute how distinct two spans are in terms of their register probabilities,
+        normalized by number of predicted labels."""
+        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
+        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = (
+            set(np.where(parent_probs >= self.config.classification_threshold)[0])
+            if parent_probs is not None
+            else set()
+        )
+
+        # Reject if no registers above threshold
+        if not (regs1 and regs2):
+            return 0.0
+
+        # Reject if both segments have exactly same registers as parent
+        if regs1 == parent_regs == regs2:
+            return 0.0
+
+        # Reject if both segments have exactly same registers
+        if regs1 == regs2:
+            return 0.0
+
+        max_prob1 = max(probs1)
+        max_prob2 = max(probs2)
+
+        diff_score = 0.0
+        diff_registers = (regs1 - regs2) | (regs2 - regs1)
+        for reg_idx in diff_registers:
+            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+        seg_diff = diff_score * (max_prob1 + max_prob2) / 2
+
+        # Normalize by total number of predicted labels
+        total_labels = len(regs1) + len(regs2)
+        return seg_diff / total_labels
+
+    def compute_register_distinctness_prev(
         self,
         probs1: np.ndarray,
         probs2: np.ndarray,
@@ -368,21 +406,21 @@ class MultiScaleSegmenter:
             score_whole = self.evaluate_split_whole(text, left_spans, right_spans)
             if score_whole == 0:
                 continue
-            scores.append(score_whole)
+            scores.append(score_whole * self.scale_weights["whole"])
 
             # Short window (2+2)
             score_short = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=2
             )
             if score_short is not None:
-                scores.append(score_short)
+                scores.append(score_short * self.scale_weights["short"])
 
             # Long window (4+4)
             score_long = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=4
             )
             if score_long is not None:
-                scores.append(score_long)
+                scores.append(score_long * self.scale_weights["long"])
 
             total_score = np.mean(scores) if scores else 0.0
 
@@ -403,7 +441,6 @@ class MultiScaleSegmenter:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
-            print("TOO SHORT:", span_text)
             probs, embedding = self.get_register_probs(
                 start_token=start_token, end_token=end_token
             )
