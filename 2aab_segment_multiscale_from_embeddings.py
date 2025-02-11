@@ -381,7 +381,11 @@ class MultiScaleSegmenter:
         )
 
     def find_best_split(
-        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+        self,
+        text: str,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        depth: int = 0,  # Add default value
     ) -> Tuple[int, float]:
         """Find best split point using multi-scale analysis."""
         best_score = 0
