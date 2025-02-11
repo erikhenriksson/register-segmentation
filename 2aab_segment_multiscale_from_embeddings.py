@@ -264,7 +264,11 @@ class MultiScaleSegmenter:
         )
 
         # Improvement over parent times number of different registers
-        score = (((score1 + score2) / 2) - parent_score) * len(regs1 ^ regs2)
+        score = (
+            (((score1 + score2) / 2) - parent_score)
+            * len(regs1 ^ regs2)
+            / len(list(regs1) + list(regs2))
+        )
 
         return score
 
