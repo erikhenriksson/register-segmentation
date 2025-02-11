@@ -385,13 +385,19 @@ class MultiScaleSegmenter:
         text: str,
         sentences: List[str],
         sent_spans: List[Tuple[int, int]],
-        depth: int = 0,  # Add default value
+        depth: int = 0,
     ) -> Tuple[int, float]:
         """Find best split point using multi-scale analysis."""
         best_score = 0
         best_split = None
 
-        print("\nEvaluating potential splits:")  # Debug header
+        # Depth penalty factor
+        depth_penalty = 1.0 / (
+            1 + depth
+        )  # Or could use 1.0 / (2 ** depth) for more aggressive
+        print(
+            f"\nEvaluating potential splits (depth={depth}, penalty={depth_penalty:.4f}):"
+        )
 
         for i in range(1, len(sentences)):
             left_spans = sent_spans[:i]
@@ -400,7 +406,6 @@ class MultiScaleSegmenter:
             left_tokens = left_spans[-1][1] - left_spans[0][0]
             right_tokens = right_spans[-1][1] - right_spans[0][0]
 
-            # Skip if segments too small
             if (
                 left_tokens < self.config.min_tokens
                 or right_tokens < self.config.min_tokens
@@ -410,29 +415,39 @@ class MultiScaleSegmenter:
             print(f"\nSplit point {i} (tokens: {left_tokens} | {right_tokens}):")
             scores = []
 
-            # Whole segment comparison
-            score_whole = self.evaluate_split_whole(text, left_spans, right_spans)
+            # Whole segment comparison with depth penalty
+            score_whole = (
+                self.evaluate_split_whole(text, left_spans, right_spans) * depth_penalty
+            )
             if score_whole == 0:
                 print("  Whole: 0 (rejected)")
                 continue
             scores.append(score_whole * self.config.scale_weights["whole"])
-            print(f"  Whole: {score_whole:.4f} (weighted: {scores[-1]:.4f})")
+            print(
+                f"  Whole: {score_whole/depth_penalty:.4f} (raw) -> {score_whole:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
+            )
 
-            # Short window
+            # Short window with depth penalty
             score_short = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=2
             )
             if score_short is not None:
+                score_short = score_short * depth_penalty
                 scores.append(score_short * self.config.scale_weights["short"])
-                print(f"  Short: {score_short:.4f} (weighted: {scores[-1]:.4f})")
+                print(
+                    f"  Short: {score_short/depth_penalty:.4f} (raw) -> {score_short:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
+                )
 
-            # Long window
+            # Long window with depth penalty
             score_long = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=4
             )
             if score_long is not None:
+                score_long = score_long * depth_penalty
                 scores.append(score_long * self.config.scale_weights["long"])
-                print(f"  Long: {score_long:.4f} (weighted: {scores[-1]:.4f})")
+                print(
+                    f"  Long: {score_long/depth_penalty:.4f} (raw) -> {score_long:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
+                )
 
             total_score = np.mean(scores) if scores else 0.0
             print(f"  Total score: {total_score:.4f}")
