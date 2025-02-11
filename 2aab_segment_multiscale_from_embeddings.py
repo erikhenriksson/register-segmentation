@@ -44,9 +44,9 @@ class MultiScaleSegmenter:
         self.tokens = None
         self.offset_mapping = None
 
-        # Cache for register probabilities and embeddings
-        self._prob_cache = {}
-        self._embedding_cache = {}
+        # Extract classification head components
+        self.head = self.model.head
+        self.classifier = self.model.classifier
 
     def safe_mean_pooling(
         self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
@@ -64,20 +64,22 @@ class MultiScaleSegmenter:
         pooled = torch.clamp(pooled, min=-100.0, max=100.0)
         return pooled.to(dtype=torch.float16)
 
+    def predict_from_embeddings(self, embeddings: torch.Tensor) -> np.ndarray:
+        """Get register probabilities using cached model head and classifier"""
+        with torch.no_grad():
+            hidden = self.head(embeddings.unsqueeze(0))
+            logits = self.classifier(hidden)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+        return probs
+
     def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
         """Get mean-pooled embedding for token span using cached embeddings."""
-        cache_key = (start_token, end_token)
-        if cache_key in self._embedding_cache:
-            return self._embedding_cache[cache_key]
-
         if self.token_embeddings is None:
             raise ValueError("Must call prepare_document before get_span_embedding")
 
         span_embeddings = self.token_embeddings[start_token:end_token]
         span_mask = self.attention_mask[start_token:end_token]
         embedding = self.safe_mean_pooling(span_embeddings, span_mask)
-
-        self._embedding_cache[cache_key] = embedding
         return embedding
 
     def get_register_probs(
@@ -97,25 +99,13 @@ class MultiScaleSegmenter:
             start_token = 0
             end_token = len(self.token_embeddings)
 
-        cache_key = (start_token, end_token)
-        if cache_key in self._prob_cache:
-            return self._prob_cache[cache_key], self._embedding_cache[cache_key]
-
         span_embedding = self.get_span_embedding(start_token, end_token)
+        probs = self.predict_from_embeddings(span_embedding)
 
-        with torch.no_grad():
-            hidden = self.model.head(span_embedding.unsqueeze(0))
-            logits = self.model.classifier(hidden)
-            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
-
-        self._prob_cache[cache_key] = probs
         return probs, span_embedding
 
     def prepare_document(self, text: str):
         """Run model once for whole document and cache results."""
-        self._prob_cache = {}
-        self._embedding_cache = {}
-
         inputs = self.tokenizer(
             text,
             truncation=True,
@@ -129,8 +119,9 @@ class MultiScaleSegmenter:
         }
 
         self.tokens = inputs["input_ids"][0]
-        outputs = self.model(**inputs)
-        self.token_embeddings = outputs.hidden_states[-1][0].detach()
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            self.token_embeddings = outputs.hidden_states[-1][0].detach()
         self.attention_mask = inputs["attention_mask"][0]
         self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
 
@@ -152,7 +143,6 @@ class MultiScaleSegmenter:
             token_count = potential_span[1] - potential_span[0]
             current_token_count = current_span[-1][1] - current_span[0][0]
 
-            # If adding next sentence keeps us under minimum, or current group is under minimum
             if (
                 token_count < self.config.min_tokens
                 or current_token_count < self.config.min_tokens
@@ -167,7 +157,7 @@ class MultiScaleSegmenter:
                 current_group = [sent]
                 current_span = [span]
 
-        # Handle the last group - if it's too small and we have previous groups, merge with last group
+        # Handle the last group
         if current_group:
             current_token_count = current_span[-1][1] - current_span[0][0]
             if current_token_count < self.config.min_tokens and merged_sentences:
@@ -186,17 +176,10 @@ class MultiScaleSegmenter:
     def get_span_window(
         self, spans: List[Tuple[int, int]], percentage: float, from_end: bool = True
     ) -> Tuple[int, int]:
-        """Get a window of spans based on percentage of total token length.
-
-        Args:
-            spans: List of token spans
-            percentage: What percentage of total length to include (0.0 to 1.0)
-            from_end: If True, get window from end of spans, else from start
-        """
+        """Get a window of spans based on percentage of total token length."""
         if not spans:
             return None
 
-        # Calculate total token length
         total_tokens = spans[-1][1] - spans[0][0]
         window_tokens = int(total_tokens * percentage)
 
@@ -255,24 +238,19 @@ class MultiScaleSegmenter:
         parent_regs = set(
             np.where(parent_probs >= self.config.classification_threshold)[0]
         )
-        # Reject if no registers above threshold
+
         if not (regs1 and regs2):
             return 0.0
 
-        # Reject if both segments have exactly same registers as parent
         if regs1 == parent_regs == regs2:
             return 0.0
 
-        # Reject if both segments have exactly same registers
         if regs1 == regs2:
-            seg_diff = 0.0
+            return 0.0
 
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
         max_prob_parent = max(parent_probs) if parent_probs is not None else 0.0
-
-        # if max_prob1 <= max_prob_parent and max_prob2 <= max_prob_parent:
-        #    return 0
 
         diff_score = 0.0
         diff_registers = (regs1 - regs2) | (regs2 - regs1)
@@ -293,17 +271,10 @@ class MultiScaleSegmenter:
         right_spans: List[Tuple[int, int]],
         window_size: int,
     ) -> float:
-        """Evaluate split using window_size groups on each side of boundary.
-
-        Args:
-            window_size: Number of groups to use on each side of boundary
-        Returns:
-            Score or None if not enough groups available
-        """
+        """Evaluate split using window_size groups on each side of boundary."""
         if len(left_spans) < window_size or len(right_spans) < window_size:
             return None
 
-        # Get window_size groups from each side
         left_window = (left_spans[-window_size][0], left_spans[-1][1])
         right_window = (right_spans[0][0], right_spans[window_size - 1][1])
 
@@ -349,7 +320,6 @@ class MultiScaleSegmenter:
             if score_long is not None:
                 scores.append(score_long)
 
-            # Average available scores
             total_score = np.mean(scores) if scores else 0.0
 
             if total_score > best_score:
