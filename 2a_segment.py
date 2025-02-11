@@ -18,7 +18,7 @@ class TextSegmenter:
         self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
         self.model.eval()
         self.min_tokens = 128  # Set minimum token length
-        self.threshold = 0.35  # Set threshold for segmenting
+        self.threshold = 0.7  # Set threshold for segmenting
 
     def safe_mean_pooling(self, hidden_states, attention_mask):
         """Safe mean pooling that handles edge cases to prevent infinite values"""
@@ -52,7 +52,7 @@ class TextSegmenter:
                 text,
                 padding=True,
                 truncation=True,
-                max_length=2048,
+                max_length=8192,
                 return_tensors="pt",
             ).to("cuda")
 
@@ -64,25 +64,6 @@ class TextSegmenter:
             return hidden_states, attention_mask, probs
 
     def compute_gain(self, parent_probs, segment_probs):
-        """Compute gain for segment split, ensuring each segment has at least one register"""
-        max_seg1 = max(segment_probs[0])
-        max_seg2 = max(segment_probs[1])
-        max_parent = max(parent_probs)
-
-        # Check that each segment has at least one probability above threshold
-        has_register_seg1 = any(prob > self.threshold for prob in segment_probs[0])
-        has_register_seg2 = any(prob > self.threshold for prob in segment_probs[1])
-
-        if (
-            max_seg1 > max_parent
-            and max_seg2 > max_parent
-            and has_register_seg1
-            and has_register_seg2
-        ):
-            return (max_seg1 + max_seg2) / 2 - max_parent
-        return 0
-
-    def compute_gain_2(self, parent_probs, segment_probs):
         """Compute gain for segment split, ensuring segments have meaningful registers"""
         # Get registers above threshold for each segment
         parent_registers = {
@@ -145,8 +126,8 @@ class TextSegmenter:
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
             "input_ids"
         ][0]
-        if len(tokens) > 2048:
-            text = self.tokenizer.decode(tokens[:2048], skip_special_tokens=True)
+        if len(tokens) > 8192:
+            text = self.tokenizer.decode(tokens[:8192], skip_special_tokens=True)
         return text
 
     def mean_pool_and_predict(
@@ -208,7 +189,7 @@ class TextSegmenter:
                     hidden_states, attention_mask, seg2_start, len(attention_mask)
                 )
 
-                gain = self.compute_gain_2(parent_probs, [probs1, probs2])
+                gain = self.compute_gain(parent_probs, [probs1, probs2])
                 if gain > best_gain:
                     best_gain = gain
                     best_segments = (segment1, segment2)
