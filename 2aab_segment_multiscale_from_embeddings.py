@@ -486,7 +486,7 @@ class MultiScaleSegmenter:
             text, sentences[split_idx:], sent_spans[split_idx:], depth + 1
         )
 
-    return left_segments + right_segments
+        return left_segments + right_segments
 
     def segment_text(self, text: str) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
         """Main entry point for text segmentation."""
