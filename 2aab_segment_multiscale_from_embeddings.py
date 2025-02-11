@@ -134,54 +134,6 @@ class MultiScaleSegmenter:
         self.attention_mask = inputs["attention_mask"][0]
         self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
 
-    def merge_short_sentences(
-        self, sentences: List[str], sent_spans: List[Tuple[int, int]]
-    ) -> Tuple[List[str], List[Tuple[int, int]]]:
-        """Merge short sentences into groups that meet the minimum token requirement."""
-        if not sentences:
-            return [], []
-
-        merged_sentences = []
-        merged_spans = []
-        current_group = [sentences[0]]
-        current_span = [sent_spans[0]]
-
-        for sent, span in zip(sentences[1:], sent_spans[1:]):
-            # Calculate tokens in current group plus next sentence
-            potential_span = (current_span[0][0], span[1])
-            token_count = potential_span[1] - potential_span[0]
-            current_token_count = current_span[-1][1] - current_span[0][0]
-
-            if (
-                token_count < self.config.min_tokens
-                or current_token_count < self.config.min_tokens
-            ):
-                # Add to current group
-                current_group.append(sent)
-                current_span.append(span)
-            else:
-                # Current group is large enough and adding more would be too large
-                merged_sentences.append(" ".join(current_group))
-                merged_spans.append((current_span[0][0], current_span[-1][1]))
-                current_group = [sent]
-                current_span = [span]
-
-        # Handle the last group
-        if current_group:
-            current_token_count = current_span[-1][1] - current_span[0][0]
-            if current_token_count < self.config.min_tokens and merged_sentences:
-                # Merge with previous group
-                last_group = merged_sentences.pop().split()
-                last_span = merged_spans.pop()
-                merged_sentences.append(" ".join(last_group + current_group))
-                merged_spans.append((last_span[0], current_span[-1][1]))
-            else:
-                # Add as new group
-                merged_sentences.append(" ".join(current_group))
-                merged_spans.append((current_span[0][0], current_span[-1][1]))
-
-        return merged_sentences, merged_spans
-
     def get_span_window(
         self, spans: List[Tuple[int, int]], percentage: float, from_end: bool = True
     ) -> Tuple[int, int]:
@@ -362,9 +314,21 @@ class MultiScaleSegmenter:
         best_split = None
 
         for i in range(1, len(sentences)):
-            scores = []
+            # Check minimum token counts for both potential segments
             left_spans = sent_spans[:i]
             right_spans = sent_spans[i:]
+
+            left_tokens = left_spans[-1][1] - left_spans[0][0]
+            right_tokens = right_spans[-1][1] - right_spans[0][0]
+
+            # Skip this split point if either segment would be too small
+            if (
+                left_tokens < self.config.min_tokens
+                or right_tokens < self.config.min_tokens
+            ):
+                continue
+
+            scores = []
 
             # Always do whole segment comparison
             score_whole = self.evaluate_split_whole(text, left_spans, right_spans)
@@ -410,7 +374,8 @@ class MultiScaleSegmenter:
 
         split_idx, score = self.find_best_split(text, sentences, sent_spans)
 
-        if score < self.config.min_register_diff or split_idx is None:
+        # If no valid split found (including due to minimum token constraints)
+        if split_idx is None or score < self.config.min_register_diff:
             start_token = sent_spans[0][0]
             end_token = sent_spans[-1][1]
             span_text = " ".join(sentences)
@@ -458,9 +423,6 @@ class MultiScaleSegmenter:
         if not sent_spans:
             probs, embedding = self.get_register_probs()
             return [(text, probs, embedding)]
-
-        # Merge short sentences into adequately-sized groups
-        # sentences, sent_spans = self.merge_short_sentences(sentences, sent_spans)
 
         segments = self.segment_recursive(text, sentences, sent_spans)
 
