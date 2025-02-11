@@ -210,35 +210,40 @@ class MultiScaleSegmenter:
         """Compute how distinct two spans are in terms of their register probabilities."""
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = (
+            set(np.where(parent_probs >= self.config.classification_threshold)[0])
+            if parent_probs is not None
+            else set()
+        )
 
-        # print(f"    Registers left: {[LABELS[i] for i in regs1]}")
-        # print(f"    Registers right: {[LABELS[i] for i in regs2]}")
-
-        # Early rejections
+        # Reject if no registers above threshold
         if not (regs1 and regs2):
-            # print("    Rejected: No registers above threshold")
             return 0.0
+
+        # Reject if both segments have exactly same registers as parent
+        if regs1 == parent_regs == regs2:
+            return 0.0
+
+        # Reject if both segments have exactly same registers
         if regs1 == regs2:
-            # print("    Rejected: Identical registers")
             return 0.0
-
-        # Score computation
-        diff_score = 0.0
-        diff_registers = (regs1 - regs2) | (regs2 - regs1)
-        # print(f"    Different registers: {[LABELS[i] for i in diff_registers]}")
-
-        for reg_idx in diff_registers:
-            prob_diff = abs(probs1[reg_idx] - probs2[reg_idx])
-            diff_score += prob_diff
-            # print(f"    {LABELS[reg_idx]}: diff = {prob_diff:.4f}")
 
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
-        # print(f"    Max probs: {max_prob1:.4f} | {max_prob2:.4f}")
+
+        diff_score = 0.0
+        diff_registers = (regs1 - regs2) | (regs2 - regs1)
+        for reg_idx in diff_registers:
+            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+
+        # Length penalty based on shorter segment
+        shorter_length = min(left_length, right_length)
+        length_penalty = np.sqrt(shorter_length / 8192)
 
         total_labels = 2 ** (len(regs1) + len(regs2))
-        final_score = diff_score * (max_prob1 + max_prob2) / total_labels
-        # print(f"    Final score: {final_score:.4f}")
+        final_score = (
+            diff_score * (max_prob1 + max_prob2) / (2 * total_labels) * length_penalty
+        )
 
         return final_score
 
