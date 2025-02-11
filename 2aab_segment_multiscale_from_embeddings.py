@@ -224,6 +224,9 @@ class MultiScaleSegmenter:
         if regs1 == regs2:  # If both spans have identical active registers
             return 0.0
 
+        if len(regs1) > 1 and len(regs2) > 1:
+            return 0
+
         # Average of above-threshold probabilities - rewards fewer, stronger signals
         score1 = sum(probs1[list(regs1)]) / len(regs1) if regs1 else 0
         score2 = sum(probs2[list(regs2)]) / len(regs2) if regs2 else 0
