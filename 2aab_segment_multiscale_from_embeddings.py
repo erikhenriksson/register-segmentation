@@ -238,7 +238,7 @@ class MultiScaleSegmenter:
 
         # Length penalty based on shorter segment
         shorter_length = min(left_length, right_length)
-        length_penalty = shorter_length / len(self.tokens)
+        length_penalty = shorter_length / 8192
 
         total_labels = 16 ** (len(regs1) - 1 + len(regs2) - 1)
         final_score = (
