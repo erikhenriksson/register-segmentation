@@ -24,7 +24,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0
+    min_register_diff: float = 0.01
     scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
 
 
@@ -216,11 +216,13 @@ class MultiScaleSegmenter:
                 scores.append(score_long * self.config.scale_weights["long"])
 
             total_score = np.sum(scores) if scores else 0.0
-            print(f"Depth: {depth}, Side: {side}, Split: {i}, Score: {total_score}")
+            # print(f"Depth: {depth}, Side: {side}, Split: {i}, Score: {total_score}")
             if total_score > best_score:
                 best_score = total_score
                 best_split = i
-        print(f"...Best split: {best_split}, Best score: {best_score}. Returning.")
+        print(
+            f"Depth: {depth}, Side: {side}, Best split: {best_split}, Best score: {best_score}"
+        )
         return best_split, best_score
 
     def segment_recursive(
