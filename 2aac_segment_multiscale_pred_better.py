@@ -166,6 +166,8 @@ class MultiScaleSegmenter:
         """Find best split point using multi-scale analysis."""
         best_score = 0
         best_split = None
+        best_regs_left = []
+        best_regs_right = []
 
         for i in range(1, len(sentences)):
             scores = []
@@ -220,8 +222,11 @@ class MultiScaleSegmenter:
             if total_score > best_score:
                 best_score = total_score
                 best_split = i
+                best_regs_left = whole_regs_left
+                best_regs_right = whole_regs_right
+
         print(
-            f"Depth: {depth}, Side: {side}, Best split: {best_split}, Best score: {best_score}"
+            f"Depth: {depth}, Side: {side}, Best split: {best_split}, Best score: {best_score}, Best regs left: {best_regs_left}, Best regs right: {best_regs_right}"
         )
         return best_split, best_score
 
