@@ -115,20 +115,21 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        # Element-wise JS distance for each label
+        # Compute element-wise JS distance
         m = (probs1 + probs2) / 2
+        # Stack the probabilities and their complements
+        p1_stack = np.column_stack([probs1, 1 - probs1])
+        p2_stack = np.column_stack([probs2, 1 - probs2])
+        m_stack = np.column_stack([m, 1 - m])
 
-        # For each label, compute JS divergence between binary distributions [p, 1-p]
-        js_distances = []
-        for p1, p2, m_i in zip(probs1, probs2, m):
-            p1_dist = np.array([p1, 1 - p1])
-            p2_dist = np.array([p2, 1 - p2])
-            m_dist = np.array([m_i, 1 - m_i])
-            kl1 = np.sum(p1_dist * np.log2(p1_dist / m_dist))
-            kl2 = np.sum(p2_dist * np.log2(p2_dist / m_dist))
-            js_distances.append((kl1 + kl2) / 2)
+        # Add small epsilon to avoid division by zero
+        eps = np.finfo(float).eps
+        kl1 = np.sum(p1_stack * np.log2((p1_stack + eps) / (m_stack + eps)), axis=1)
+        kl2 = np.sum(p2_stack * np.log2((p2_stack + eps) / (m_stack + eps)), axis=1)
 
-        return np.sqrt(np.mean(js_distances)), regs1, regs2
+        js_distance = np.sqrt(np.mean((kl1 + kl2) / 2))
+
+        return js_distance, regs1, regs2
 
     def evaluate_split(
         self,
