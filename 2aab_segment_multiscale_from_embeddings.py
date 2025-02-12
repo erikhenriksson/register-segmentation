@@ -26,7 +26,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 64  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.0001
+    min_register_diff: float = 0.0005
     scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
 
 
@@ -238,11 +238,11 @@ class MultiScaleSegmenter:
 
         # Length penalty based on shorter segment
         shorter_length = min(left_length, right_length)
-        length_penalty = shorter_length / 8192
+        length_penalty = shorter_length / len(self.tokens)
 
         total_labels = 8 ** (len(regs1) - 1 + len(regs2) - 1)
         final_score = (
-            diff_score * (max_prob1 + max_prob2) / (2 * total_labels) * length_penalty
+            diff_score * (max_prob1 + max_prob2) / total_labels * length_penalty
         )
 
         return final_score
