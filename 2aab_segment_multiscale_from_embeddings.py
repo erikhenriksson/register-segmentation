@@ -419,7 +419,7 @@ class MultiScaleSegmenter:
                 continue
 
             # print(f"\nSplit point {i} (tokens: {left_tokens} | {right_tokens}):")
-            scores = []
+            scores = 0
 
             # Whole segment comparison with depth penalty
             score_whole, wholereg1, wholereg2 = (
@@ -428,7 +428,7 @@ class MultiScaleSegmenter:
             if score_whole == 0:
                 # print("  Whole: 0 (rejected)")
                 continue
-            scores.append(score_whole * self.config.scale_weights["whole"])
+            scores += score_whole * self.config.scale_weights["whole"]
             # print(
             #    f"  Whole: {score_whole/depth_penalty:.4f} (raw) -> {score_whole:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
             # )
@@ -441,7 +441,7 @@ class MultiScaleSegmenter:
                 score_short = score_short * depth_penalty
                 if wholereg1 == shortreg1 and wholereg2 == shortreg2:
 
-                    scores.append(score_short * self.config.scale_weights["short"])
+                    scores += score_short * self.config.scale_weights["short"]
                 # print(
                 #    f"  Short: {score_short/depth_penalty:.4f} (raw) -> {score_short:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
@@ -453,12 +453,12 @@ class MultiScaleSegmenter:
             if score_long is not None:
                 score_long = score_long * depth_penalty
                 if wholereg1 == longreg1 and wholereg2 == longreg2:
-                    scores.append(score_long * self.config.scale_weights["long"])
+                    scores += score_long * self.config.scale_weights["long"]
                 # print(
                 #    f"  Long: {score_long/depth_penalty:.4f} (raw) -> {score_long:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
 
-            total_score = np.max(scores) if scores else 0.0
+            total_score = scores
             # print(f"  Total score: {total_score:.4f}")
 
             if total_score > best_score:
