@@ -240,7 +240,7 @@ class MultiScaleSegmenter:
         shorter_length = min(left_length, right_length)
         length_penalty = shorter_length / len(self.tokens)
 
-        total_labels = 8 ** (len(regs1) - 1 + len(regs2) - 1)
+        total_labels = 16 ** (len(regs1) - 1 + len(regs2) - 1)
         final_score = (
             diff_score * (max_prob1 + max_prob2) / total_labels * length_penalty
         )
