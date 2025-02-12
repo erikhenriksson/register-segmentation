@@ -218,15 +218,15 @@ class MultiScaleSegmenter:
 
         # Reject if no registers above threshold
         if not (regs1 and regs2):
-            return 0.0
+            return 0.0, [], []
 
         # Reject if both segments have exactly same registers as parent
         if regs1 == parent_regs == regs2:
-            return 0.0
+            return 0.0, [], []
 
         # Reject if both segments have exactly same registers
         if regs1 == regs2:
-            return 0.0
+            return 0.0, [], []
 
         max_prob1 = max(probs1)
         max_prob2 = max(probs2)
