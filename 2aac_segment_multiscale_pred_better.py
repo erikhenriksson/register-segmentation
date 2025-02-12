@@ -185,7 +185,15 @@ class MultiScaleSegmenter:
             score_whole, whole_regs_left, whole_regs_right = self.evaluate_split_whole(
                 text, left_spans, right_spans
             )
-            scores.append(score_whole * self.config.scale_weights["whole"])
+
+            # Get minimun segment length in tokens
+            min_tokens = min(
+                sum(e - s for s, e in left_spans), sum(e - s for s, e in right_spans)
+            )
+
+            scores.append(
+                score_whole * self.config.scale_weights["whole"] * min_tokens / 8192
+            )
 
             # Short window (2+2)
             score_short, short_regs_left, short_regs_right = self.evaluate_split_window(
