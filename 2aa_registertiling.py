@@ -19,11 +19,10 @@ class SegmenterConfig:
     classification_threshold: float = (
         0.7  # Increase for more confident register assignments
     )
-    min_sentences: int = 3  # Decrease to allow shorter segments
-    max_sentences: int = 150  # Increase to handle longer coherent sections
-    window_sentences: int = 7  # Increase for more context
-    stride: int = 3  # Increase to reduce computational overhead
-    merge_threshold: float = 0.25  # Lower to detect subtle register shifts
+    min_sentences: int = 10  # Decrease to allow shorter segments
+    window_sentences: int = 10  # Increase for more context
+    stride: int = 5  # Increase to reduce computational overhead
+    merge_threshold: float = 0.5  # Lower to detect subtle register shifts
 
 
 class TextSegmenter:
