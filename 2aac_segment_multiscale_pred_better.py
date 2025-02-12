@@ -152,6 +152,9 @@ class MultiScaleSegmenter:
         right_spans: List[Tuple[int, int]],
         window_size: int,
     ) -> float:
+        print(left_spans)
+        print(right_spans)
+        exit()
         """Evaluate split using window_size groups on each side of boundary."""
         if len(left_spans) < window_size or len(right_spans) < window_size:
             return None, [], []
@@ -180,6 +183,12 @@ class MultiScaleSegmenter:
             scores = []
             left_spans = sent_spans[:i]
             right_spans = sent_spans[i:]
+
+            if (
+                left_spans < self.config.min_tokens
+                or right_spans < self.config.min_tokens
+            ):
+                continue
 
             # Always do whole segment comparison
             score_whole, whole_regs_left, whole_regs_right = self.evaluate_split_whole(
