@@ -184,6 +184,9 @@ class MultiScaleSegmenter:
             left_spans = sent_spans[:i]
             right_spans = sent_spans[i:]
 
+            print(left_spans)
+            print(right_spans)
+
             if (
                 left_spans < self.config.min_tokens
                 or right_spans < self.config.min_tokens
