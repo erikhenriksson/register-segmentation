@@ -26,7 +26,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.05
+    min_register_diff: float = 0
     scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
 
 
@@ -389,9 +389,9 @@ class MultiScaleSegmenter:
         window_size: int = 0,
     ) -> float:
 
-        print("left_spans:", left_spans)
-        print("right_spans:", right_spans)
-        print("window_size:", window_size)
+        # print("left_spans:", left_spans)
+        # print("right_spans:", right_spans)
+        # print("window_size:", window_size)
 
         try:
             left_window = (left_spans[-window_size][0], left_spans[-1][-1])
