@@ -389,6 +389,10 @@ class MultiScaleSegmenter:
         window_size: int = 0,
     ) -> float:
 
+        print("left_spans:", left_spans)
+        print("right_spans:", right_spans)
+        print("window_size:", window_size)
+
         try:
             left_window = (left_spans[-window_size][0], left_spans[-1][-1])
             right_window = (right_spans[0][0], right_spans[window_size - 1][-1])
