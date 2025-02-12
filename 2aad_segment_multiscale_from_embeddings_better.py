@@ -26,7 +26,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.0005
+    min_register_diff: float = 0.05
     scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
 
 
@@ -388,12 +388,15 @@ class MultiScaleSegmenter:
         right_spans: List[Tuple[int, int]],
         window_size: int = 0,
     ) -> float:
-        """Evaluate split using window_size groups on each side of boundary."""
-        if len(left_spans) < window_size or len(right_spans) < window_size:
-            return None, [], []
 
-        left_window = (left_spans[-window_size][0], left_spans[-1][1])
-        right_window = (right_spans[0][0], right_spans[window_size - 1][1])
+        left_window = (left_spans[-window_size][0], left_spans[-1][-1])
+        right_window = (right_spans[0][0], right_spans[window_size - 1][-1])
+
+        if (
+            len(left_window[1] - left_window[0]) < window_size
+            or len(right_window[1] - right_window[0]) < window_size
+        ):
+            return None, [], []
 
         left_probs, _ = self.get_register_probs(
             start_token=left_window[0], end_token=left_window[1]
