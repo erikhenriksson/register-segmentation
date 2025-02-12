@@ -156,7 +156,12 @@ class MultiScaleSegmenter:
         return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
     def find_best_split(
-        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+        self,
+        text: str,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        depth: int,
+        side: str,
     ) -> Tuple[int, float]:
         """Find best split point using multi-scale analysis."""
         best_score = 0
@@ -211,15 +216,20 @@ class MultiScaleSegmenter:
                 scores.append(score_long * self.config.scale_weights["long"])
 
             total_score = np.sum(scores) if scores else 0.0
-
+            print(f"Depth: {depth}, Side: {side}, Split: {i}, Score: {total_score}")
             if total_score > best_score:
                 best_score = total_score
                 best_split = i
-
+        print(f"...Best split: {best_split}, Best score: {best_score}. Returning.")
         return best_split, best_score
 
     def segment_recursive(
-        self, text: str, sentences: List[str], sent_spans: List[Tuple[int, int]]
+        self,
+        text: str,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        depth: int = 0,
+        side: str = "root",
     ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
         """Recursively segment text using binary splitting."""
         total_tokens = sent_spans[-1][1] - sent_spans[0][0]
@@ -229,7 +239,9 @@ class MultiScaleSegmenter:
             probs, embedding = self.get_register_probs(span_text)
             return [(span_text, probs, embedding)]
 
-        split_idx, score = self.find_best_split(text, sentences, sent_spans)
+        split_idx, score = self.find_best_split(
+            text, sentences, sent_spans, depth, side
+        )
 
         if score < self.config.min_register_diff or split_idx is None:
             span_text = " ".join(sentences)
@@ -237,10 +249,10 @@ class MultiScaleSegmenter:
             return [(span_text, probs, embedding)]
 
         left_segments = self.segment_recursive(
-            text, sentences[:split_idx], sent_spans[:split_idx]
+            text, sentences[:split_idx], sent_spans[:split_idx], depth + 1, "left"
         )
         right_segments = self.segment_recursive(
-            text, sentences[split_idx:], sent_spans[split_idx:]
+            text, sentences[split_idx:], sent_spans[split_idx:], depth + 1, "right"
         )
 
         return left_segments + right_segments
