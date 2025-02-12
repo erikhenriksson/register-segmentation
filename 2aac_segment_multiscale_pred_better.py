@@ -1,11 +1,18 @@
+print("Importing basic libraries...")
 import sys
 import json
 import glob
-import pandas as pd
-import numpy as np
 from dataclasses import dataclass
 from typing import List, Tuple, Dict
-from nltk.tokenize import sent_tokenize, PunktSentenceTokenizer
+
+print("Importing pandas and numpy")
+import pandas as pd
+import numpy as np
+
+print("Importing nltk")
+from nltk.tokenize import PunktSentenceTokenizer
+
+print("Importing torch and transformers")
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -18,7 +25,7 @@ class MultiScaleConfig:
     min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0
-    scale_weights = {"short": 0, "long": 0, "whole": 0.75}
+    scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
 
 
 class MultiScaleSegmenter:
@@ -109,9 +116,9 @@ class MultiScaleSegmenter:
             return 0.0, [], []
 
         # check that parent register(s) are present in either of the child registers
-        for k in parent_regs:
-            if k not in regs1 or k not in regs2:
-                return 0.0, [], []
+        # for k in parent_regs:
+        #    if k not in regs1 or k not in regs2:
+        #        return 0.0, [], []
 
         diff_score = 0.0
         diff_registers = (regs1 - regs2) | (regs2 - regs1)
@@ -183,7 +190,7 @@ class MultiScaleSegmenter:
 
             # Short window (2+2)
             score_short, short_regs_left, short_regs_right = self.evaluate_split(
-                text, left_spans, right_spans, window_size=2
+                text, left_spans, right_spans, window_size=4
             )
             if (
                 score_short is not None
@@ -194,7 +201,7 @@ class MultiScaleSegmenter:
 
             # Long window (4+4)
             score_long, long_regs_left, long_regs_right = self.evaluate_split(
-                text, left_spans, right_spans, window_size=4
+                text, left_spans, right_spans, window_size=8
             )
             if (
                 score_long is not None
