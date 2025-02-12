@@ -403,6 +403,7 @@ class MultiScaleSegmenter:
         # print(
         #    f"\nEvaluating potential splits (depth={depth}, penalty={depth_penalty:.4f}):"
         # )
+        depth_penalty = 0
 
         for i in range(1, len(sentences)):
             left_spans = sent_spans[:i]
