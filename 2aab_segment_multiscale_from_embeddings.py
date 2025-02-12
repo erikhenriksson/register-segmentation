@@ -26,8 +26,8 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0
-    scale_weights = {"short": 0, "long": 0, "whole": 1 / 2}
+    min_register_diff: float = 0.0005
+    scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
 
 
 class MultiScaleSegmenter:
@@ -419,7 +419,7 @@ class MultiScaleSegmenter:
                 continue
 
             # print(f"\nSplit point {i} (tokens: {left_tokens} | {right_tokens}):")
-            scores = 0
+            scores = []
 
             # Whole segment comparison with depth penalty
             score_whole, wholereg1, wholereg2 = (
@@ -428,7 +428,7 @@ class MultiScaleSegmenter:
             if score_whole == 0:
                 # print("  Whole: 0 (rejected)")
                 continue
-            scores += score_whole * self.config.scale_weights["whole"]
+            scores.append(score_whole * self.config.scale_weights["whole"])
             # print(
             #    f"  Whole: {score_whole/depth_penalty:.4f} (raw) -> {score_whole:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
             # )
@@ -441,7 +441,7 @@ class MultiScaleSegmenter:
                 score_short = score_short * depth_penalty
                 if wholereg1 == shortreg1 and wholereg2 == shortreg2:
 
-                    scores += score_short * self.config.scale_weights["short"]
+                    scores.append(score_short * self.config.scale_weights["short"])
                 # print(
                 #    f"  Short: {score_short/depth_penalty:.4f} (raw) -> {score_short:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
@@ -453,12 +453,12 @@ class MultiScaleSegmenter:
             if score_long is not None:
                 score_long = score_long * depth_penalty
                 if wholereg1 == longreg1 and wholereg2 == longreg2:
-                    scores += score_long * self.config.scale_weights["long"]
+                    scores.append(score_long * self.config.scale_weights["long"])
                 # print(
                 #    f"  Long: {score_long/depth_penalty:.4f} (raw) -> {score_long:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
 
-            total_score = scores
+            total_score = np.mean(scores) if scores else 0.0
             # print(f"  Total score: {total_score:.4f}")
 
             if total_score > best_score:
