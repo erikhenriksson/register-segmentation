@@ -99,37 +99,36 @@ class MultiScaleSegmenter:
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
-        """Compute how distinct two spans are in terms of their register probabilities."""
+        """Compute how distinct two spans are using element-wise Jensen-Shannon distance."""
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
-        parent_regs = set(
-            np.where(parent_probs >= self.config.classification_threshold)[0]
+        parent_regs = (
+            set(np.where(parent_probs >= self.config.classification_threshold)[0])
+            if parent_probs is not None
+            else set()
         )
 
         if not (regs1 and regs2):
             return 0.0, [], []
-
         if regs1 == parent_regs == regs2:
             return 0.0, [], []
-
         if regs1 == regs2:
             return 0.0, [], []
 
-        # check that parent register(s) are present in either of the child registers
-        # for k in parent_regs:
-        #    if k not in regs1 or k not in regs2:
-        #        return 0.0, [], []
+        # Element-wise JS distance for each label
+        m = (probs1 + probs2) / 2
 
-        diff_score = 0.0
-        diff_registers = (regs1 - regs2) | (regs2 - regs1)
-        for reg_idx in diff_registers:
-            diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
+        # For each label, compute JS divergence between binary distributions [p, 1-p]
+        js_distances = []
+        for p1, p2, m_i in zip(probs1, probs2, m):
+            p1_dist = np.array([p1, 1 - p1])
+            p2_dist = np.array([p2, 1 - p2])
+            m_dist = np.array([m_i, 1 - m_i])
+            kl1 = np.sum(p1_dist * np.log2(p1_dist / m_dist))
+            kl2 = np.sum(p2_dist * np.log2(p2_dist / m_dist))
+            js_distances.append((kl1 + kl2) / 2)
 
-        total_labels = len(regs1) + len(regs2)
-
-        final_score = diff_score / total_labels
-
-        return final_score, regs1, regs2
+        return np.sqrt(np.mean(js_distances)), regs1, regs2
 
     def evaluate_split(
         self,
