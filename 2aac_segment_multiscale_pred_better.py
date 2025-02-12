@@ -18,7 +18,7 @@ class MultiScaleConfig:
     min_tokens: int = 128  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0
-    scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
+    scale_weights = {"short": 0, "long": 0, "whole": 0.75}
 
 
 class MultiScaleSegmenter:
@@ -184,12 +184,12 @@ class MultiScaleSegmenter:
             left_spans = sent_spans[:i]
             right_spans = sent_spans[i:]
 
-            print(left_spans)
-            print(right_spans)
+            left_length = left_spans[-1][-1] - left_spans[0][0]
+            right_length = right_spans[-1][-1] - right_spans[0][0]
 
             if (
-                left_spans < self.config.min_tokens
-                or right_spans < self.config.min_tokens
+                left_length < self.config.min_tokens
+                or right_length < self.config.min_tokens
             ):
                 continue
 
@@ -199,9 +199,7 @@ class MultiScaleSegmenter:
             )
 
             # Get minimun segment length in tokens
-            min_tokens = min(
-                sum(e - s for s, e in left_spans), sum(e - s for s, e in right_spans)
-            )
+            min_tokens = min(left_length, right_length)
 
             scores.append(
                 score_whole * self.config.scale_weights["whole"] * min_tokens / 8192
