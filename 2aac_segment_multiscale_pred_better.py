@@ -115,6 +115,10 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
+        for k in parent_regs:
+            if k not in regs1 and k not in regs2:
+                return 0.0, [], []
+
         # Compute element-wise JS distance
         m = (probs1 + probs2) / 2
         # Stack the probabilities and their complements
