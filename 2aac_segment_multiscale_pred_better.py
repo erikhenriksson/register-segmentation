@@ -99,7 +99,7 @@ class MultiScaleSegmenter:
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
-        """Compute how distinct two spans are using element-wise Jensen-Shannon distance."""
+        """Compute how distinct two spans are using Hellinger distance."""
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
         parent_regs = (
@@ -115,25 +115,16 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        for k in parent_regs:
-            if k not in regs1 and k not in regs2:
-                return 0.0, [], []
-
-        # Compute element-wise JS distance
-        m = (probs1 + probs2) / 2
-        # Stack the probabilities and their complements
+        # For each probability, treat as binary distribution [p, 1-p]
         p1_stack = np.column_stack([probs1, 1 - probs1])
         p2_stack = np.column_stack([probs2, 1 - probs2])
-        m_stack = np.column_stack([m, 1 - m])
 
-        # Add small epsilon to avoid division by zero
-        eps = np.finfo(float).eps
-        kl1 = np.sum(p1_stack * np.log2((p1_stack + eps) / (m_stack + eps)), axis=1)
-        kl2 = np.sum(p2_stack * np.log2((p2_stack + eps) / (m_stack + eps)), axis=1)
+        # Compute Hellinger distance for each label
+        h_distances = np.sqrt(
+            np.sum((np.sqrt(p1_stack) - np.sqrt(p2_stack)) ** 2, axis=1)
+        ) / np.sqrt(2)
 
-        js_distance = np.sqrt(np.mean((kl1 + kl2) / 2))
-
-        return js_distance, regs1, regs2
+        return np.mean(h_distances), regs1, regs2
 
     def evaluate_split(
         self,
