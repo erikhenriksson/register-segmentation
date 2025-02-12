@@ -187,6 +187,8 @@ class MultiScaleSegmenter:
             score_whole, whole_regs_left, whole_regs_right = self.evaluate_split(
                 text, left_spans, right_spans
             )
+            if score_whole == 0:
+                continue
 
             # Get minimun segment length in tokens
             min_tokens = min(left_length, right_length)
