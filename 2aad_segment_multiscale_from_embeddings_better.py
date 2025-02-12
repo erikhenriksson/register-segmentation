@@ -443,7 +443,7 @@ class MultiScaleSegmenter:
                 continue
 
             score_whole, whole_regs_left, whole_regs_right = self.evaluate_split(
-                text, left_spans, right_spans
+                left_spans, right_spans
             )
             if score_whole == 0:
                 continue
@@ -455,14 +455,14 @@ class MultiScaleSegmenter:
 
             # Short window with depth penalty
             score_short, shortreg1, shortreg2 = self.evaluate_split(
-                text, left_spans, right_spans, window_size=3
+                left_spans, right_spans, window_size=3
             )
             if score_short is not None:
                 scores.append(score_short * self.config.scale_weights["short"])
 
             # Long window with depth penalty
             score_long, longreg1, longreg2 = self.evaluate_split(
-                text, left_spans, right_spans, window_size=9
+                left_spans, right_spans, window_size=9
             )
             if score_long is not None:
                 scores.append(score_short * self.config.scale_weights["long"])
