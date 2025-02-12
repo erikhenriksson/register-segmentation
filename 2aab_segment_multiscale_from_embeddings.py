@@ -245,7 +245,7 @@ class MultiScaleSegmenter:
             diff_score * (max_prob1 + max_prob2) / total_labels * length_penalty
         )
 
-        return final_score
+        return final_score, regs1, regs2
 
     def compute_register_distinctness_prev(
         self,
@@ -422,7 +422,7 @@ class MultiScaleSegmenter:
             scores = []
 
             # Whole segment comparison with depth penalty
-            score_whole = (
+            score_whole, wholereg1, wholereg2 = (
                 self.evaluate_split_whole(text, left_spans, right_spans) * depth_penalty
             )
             if score_whole == 0:
@@ -434,23 +434,26 @@ class MultiScaleSegmenter:
             # )
 
             # Short window with depth penalty
-            score_short = self.evaluate_split_window(
+            score_short, shortreg1, shortreg2 = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=2
             )
             if score_short is not None:
                 score_short = score_short * depth_penalty
-                scores.append(score_short * self.config.scale_weights["short"])
+                if wholereg1 == shortreg1 and wholereg2 == shortreg2:
+
+                    scores.append(score_short * self.config.scale_weights["short"])
                 # print(
                 #    f"  Short: {score_short/depth_penalty:.4f} (raw) -> {score_short:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
 
             # Long window with depth penalty
-            score_long = self.evaluate_split_window(
+            score_long, longreg1, longreg2 = self.evaluate_split_window(
                 text, left_spans, right_spans, window_size=4
             )
             if score_long is not None:
                 score_long = score_long * depth_penalty
-                scores.append(score_long * self.config.scale_weights["long"])
+                if wholereg1 == longreg1 and wholereg2 == longreg2:
+                    scores.append(score_long * self.config.scale_weights["long"])
                 # print(
                 #    f"  Long: {score_long/depth_penalty:.4f} (raw) -> {score_long:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
