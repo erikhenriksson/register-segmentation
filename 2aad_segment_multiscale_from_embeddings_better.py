@@ -389,11 +389,11 @@ class MultiScaleSegmenter:
         window_size: int = 0,
     ) -> float:
 
-        left_window = (left_spans[-window_size][0], left_spans[-1][-1])
-        right_window = (right_spans[0][0], right_spans[window_size - 1][-1])
-
         if len(left_window) < window_size or len(right_window) < window_size:
             return None, [], []
+
+        left_window = (left_spans[-window_size][0], left_spans[-1][-1])
+        right_window = (right_spans[0][0], right_spans[window_size - 1][-1])
 
         left_probs, _ = self.get_register_probs(
             start_token=left_window[0], end_token=left_window[1]
