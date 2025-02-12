@@ -458,7 +458,7 @@ class MultiScaleSegmenter:
                 #    f"  Long: {score_long/depth_penalty:.4f} (raw) -> {score_long:.4f} (with depth penalty) -> {scores[-1]:.4f} (weighted)"
                 # )
 
-            total_score = np.mean(scores) if scores else 0.0
+            total_score = np.max(scores) if scores else 0.0
             # print(f"  Total score: {total_score:.4f}")
 
             if total_score > best_score:
