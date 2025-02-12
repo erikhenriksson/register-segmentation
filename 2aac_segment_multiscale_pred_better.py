@@ -85,32 +85,9 @@ class MultiScaleSegmenter:
 
     def get_text_for_span(self, text: str, start_token: int, end_token: int) -> str:
         """Get the original text corresponding to a token span."""
-        if not self.offset_mapping:
-            raise ValueError("Must call prepare_document first")
-
         char_start = self.offset_mapping[start_token][0]
         char_end = self.offset_mapping[end_token - 1][1]
         return text[char_start:char_end]
-
-    def evaluate_split_whole(
-        self,
-        text: str,
-        left_spans: List[Tuple[int, int]],
-        right_spans: List[Tuple[int, int]],
-    ) -> float:
-        """Evaluate split comparing whole segments."""
-        if not left_spans or not right_spans:
-            return 0.0
-
-        left_text = self.get_text_for_span(text, left_spans[0][0], left_spans[-1][1])
-        right_text = self.get_text_for_span(text, right_spans[0][0], right_spans[-1][1])
-        parent_text = self.get_text_for_span(text, left_spans[0][0], right_spans[-1][1])
-
-        left_probs, _ = self.get_register_probs(left_text)
-        right_probs, _ = self.get_register_probs(right_text)
-        parent_probs, _ = self.get_register_probs(parent_text)
-
-        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
@@ -131,30 +108,29 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        max_prob1 = max(probs1)
-        max_prob2 = max(probs2)
+        # check that parent register(s) are present in either of the child registers
+        for k in parent_regs:
+            if k not in regs1 or k not in regs2:
+                return 0.0, [], []
 
         diff_score = 0.0
         diff_registers = (regs1 - regs2) | (regs2 - regs1)
         for reg_idx in diff_registers:
             diff_score += abs(probs1[reg_idx] - probs2[reg_idx])
 
-        total_labels = 32 ** (len(regs1) - 1 + len(regs2) - 1)
+        total_labels = len(regs1) + len(regs2)
 
-        final_score = diff_score * (max_prob1 + max_prob2) / 2 * total_labels
+        final_score = diff_score / total_labels
 
         return final_score, regs1, regs2
 
-    def evaluate_split_window(
+    def evaluate_split(
         self,
         text: str,
         left_spans: List[Tuple[int, int]],
         right_spans: List[Tuple[int, int]],
-        window_size: int,
+        window_size: int = 0,
     ) -> float:
-        print(left_spans)
-        print(right_spans)
-        exit()
         """Evaluate split using window_size groups on each side of boundary."""
         if len(left_spans) < window_size or len(right_spans) < window_size:
             return None, [], []
@@ -194,7 +170,7 @@ class MultiScaleSegmenter:
                 continue
 
             # Always do whole segment comparison
-            score_whole, whole_regs_left, whole_regs_right = self.evaluate_split_whole(
+            score_whole, whole_regs_left, whole_regs_right = self.evaluate_split(
                 text, left_spans, right_spans
             )
 
@@ -206,7 +182,7 @@ class MultiScaleSegmenter:
             )
 
             # Short window (2+2)
-            score_short, short_regs_left, short_regs_right = self.evaluate_split_window(
+            score_short, short_regs_left, short_regs_right = self.evaluate_split(
                 text, left_spans, right_spans, window_size=2
             )
             if (
@@ -217,7 +193,7 @@ class MultiScaleSegmenter:
                 scores.append(score_short * self.config.scale_weights["short"])
 
             # Long window (4+4)
-            score_long, long_regs_left, long_regs_right = self.evaluate_split_window(
+            score_long, long_regs_left, long_regs_right = self.evaluate_split(
                 text, left_spans, right_spans, window_size=4
             )
             if (
