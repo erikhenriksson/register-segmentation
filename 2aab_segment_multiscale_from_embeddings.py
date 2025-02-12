@@ -398,12 +398,12 @@ class MultiScaleSegmenter:
 
         # Depth penalty factor
         depth_penalty = 1.0 / (
-            1 + depth
+            1 + depth / 0.25
         )  # Or could use 1.0 / (2 ** depth) for more aggressive
         # print(
         #    f"\nEvaluating potential splits (depth={depth}, penalty={depth_penalty:.4f}):"
         # )
-        depth_penalty = 0
+        depth_penalty = 1
 
         for i in range(1, len(sentences)):
             left_spans = sent_spans[:i]
