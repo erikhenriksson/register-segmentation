@@ -356,7 +356,7 @@ class MultiScaleSegmenter:
     ) -> float:
         """Evaluate split using window_size groups on each side of boundary."""
         if len(left_spans) < window_size or len(right_spans) < window_size:
-            return None
+            return None, [], []
 
         left_window = (left_spans[-window_size][0], left_spans[-1][1])
         right_window = (right_spans[0][0], right_spans[window_size - 1][1])
