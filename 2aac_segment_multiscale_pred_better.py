@@ -185,7 +185,7 @@ class MultiScaleSegmenter:
             score_whole, whole_regs_left, whole_regs_right = self.evaluate_split_whole(
                 text, left_spans, right_spans
             )
-            scores.append(score_whole)
+            scores.append(score_whole * self.config.scale_weights["whole"])
 
             # Short window (2+2)
             score_short, short_regs_left, short_regs_right = self.evaluate_split_window(
@@ -196,7 +196,7 @@ class MultiScaleSegmenter:
                 and short_regs_left == whole_regs_left
                 and short_regs_right == whole_regs_right
             ):
-                scores.append(score_short)
+                scores.append(score_short * self.config.scale_weights["short"])
 
             # Long window (4+4)
             score_long, long_regs_left, long_regs_right = self.evaluate_split_window(
@@ -207,7 +207,7 @@ class MultiScaleSegmenter:
                 and long_regs_left == whole_regs_left
                 and long_regs_right == whole_regs_right
             ):
-                scores.append(score_long)
+                scores.append(score_long * self.config.scale_weights["long"])
 
             total_score = np.sum(scores) if scores else 0.0
 
