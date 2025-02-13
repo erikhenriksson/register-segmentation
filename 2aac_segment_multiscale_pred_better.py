@@ -227,10 +227,16 @@ class MultiScaleSegmenter:
         parent_probs: List[np.ndarray] = None,
         depth: int = 0,
         side: str = "root",
+        full_text_probs: np.ndarray = None,
     ) -> List[Tuple[str, List[np.ndarray], torch.Tensor]]:
         """Recursively segment text using binary splitting."""
+        # Initialize parent_probs if None
         if parent_probs is None:
             parent_probs = []
+            if full_text_probs is None:
+                # Get full text probabilities only once at the root
+                full_text_probs, _ = self.get_register_probs(text)
+            parent_probs = [full_text_probs]  # Always include full text probs
 
         total_tokens = sent_spans[-1][1] - sent_spans[0][0]
 
@@ -240,31 +246,37 @@ class MultiScaleSegmenter:
 
         # If too small to split further
         if total_tokens < 2 * self.config.min_tokens:
-            return [(span_text, parent_probs + [current_probs], current_embedding)]
+            all_probs = parent_probs + [current_probs]
+            return [(span_text, all_probs, current_embedding)]
 
         split_idx, score = self.find_best_split(
             text, sentences, sent_spans, depth, side
         )
 
         if score < self.config.min_register_diff or split_idx is None:
-            return [(span_text, parent_probs + [current_probs], current_embedding)]
+            all_probs = parent_probs + [current_probs]
+            return [(span_text, all_probs, current_embedding)]
 
         # Pass accumulated probabilities to recursive calls
+        current_level_probs = parent_probs + [current_probs]
+
         left_segments = self.segment_recursive(
             text,
             sentences[:split_idx],
             sent_spans[:split_idx],
-            parent_probs + [current_probs],
+            current_level_probs,
             depth + 1,
             "left",
+            full_text_probs,
         )
         right_segments = self.segment_recursive(
             text,
             sentences[split_idx:],
             sent_spans[split_idx:],
-            parent_probs + [current_probs],
+            current_level_probs,
             depth + 1,
             "right",
+            full_text_probs,
         )
 
         return left_segments + right_segments
@@ -303,11 +315,14 @@ class MultiScaleSegmenter:
             probs, embedding = self.get_register_probs(text)
             return [(text, [probs], embedding)]
 
-        segments = self.segment_recursive(text, sentences, sent_spans)
+        # Get document-level predictions first
+        text_probs, text_embedding = self.get_register_probs(text)
+        segments = self.segment_recursive(
+            text, sentences, sent_spans, full_text_probs=text_probs
+        )
 
         if len(segments) == 1:
-            probs, embedding = self.get_register_probs(text)
-            return [(text, [probs], embedding)]
+            return [(text, [text_probs], text_embedding)]
 
         return segments
 
@@ -398,10 +413,8 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
-            segments = segmenter.segment_text(text)
-
-            # Get document-level predictions
             text_probs, text_embedding = segmenter.get_register_probs(text)
+            segments = segmenter.segment_text(text)
 
             result = {
                 "id": i,
