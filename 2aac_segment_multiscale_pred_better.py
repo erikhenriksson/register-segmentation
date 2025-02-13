@@ -94,7 +94,7 @@ class MultiScaleSegmenter:
         """Get the original text corresponding to a token span."""
         char_start = self.offset_mapping[start_token][0]
         char_end = self.offset_mapping[end_token - 1][1]
-        print(text[char_start:char_end])
+
         return text[char_start:char_end]
 
     def compute_register_distinctness(
