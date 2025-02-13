@@ -261,7 +261,7 @@ class MultiScaleSegmenter:
             text,
             sentences[:split_idx],
             sent_spans[:split_idx],
-            parent_probs,  # Don't add current_probs here
+            parent_probs + [current_probs],  # Don't add current_probs here
             depth + 1,
             "left",
             full_text_probs,
@@ -270,7 +270,7 @@ class MultiScaleSegmenter:
             text,
             sentences[split_idx:],
             sent_spans[split_idx:],
-            parent_probs,  # Don't add current_probs here
+            parent_probs + [current_probs],  # Don't add current_probs here
             depth + 1,
             "right",
             full_text_probs,
