@@ -232,7 +232,11 @@ class MultiScaleSegmenter:
         total_tokens = sent_spans[-1][-1] - sent_spans[0][0]
 
         # Get probabilities for current segment
-        span_text = " ".join(sentences)
+        span_text = self.get_text_for_span(text, sent_spans[0][0], sent_spans[-1][-1])
+        print(span_text)
+
+        print(sentences)
+        exit()
         current_probs, current_embedding = self.get_register_probs(span_text)
 
         new_chain = prob_chain + [current_probs]
