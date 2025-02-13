@@ -24,7 +24,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.03
+    min_register_diff: float = 0.04
     scale_weights = {"short": 1, "long": 1, "whole": 1}
 
 
@@ -182,12 +182,14 @@ class MultiScaleSegmenter:
             return 0.0, [], []
 
         # Compute cosine distance
-        similarity = np.dot(probs1, probs2) / (np.linalg.norm(probs1) * np.linalg.norm(probs2))
+        similarity = np.dot(probs1, probs2) / (
+            np.linalg.norm(probs1) * np.linalg.norm(probs2)
+        )
         distance = 1 - similarity
-        
+
         # Normalize by number of active registers as in original
         normalized_distance = distance / (len(regs1) + len(regs2) - 1)
-        
+
         return normalized_distance, regs1, regs2
 
     def evaluate_split(
