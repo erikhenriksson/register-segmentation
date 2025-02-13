@@ -235,7 +235,7 @@ class MultiScaleSegmenter:
         span_text = " ".join(sentences)
         current_probs, current_embedding = self.get_register_probs(span_text)
 
-        prob_chain += [current_probs]
+        new_chain = prob_chain + [current_probs]
 
         # If too small to split further
         if total_tokens < 2 * self.config.min_tokens:
@@ -246,14 +246,14 @@ class MultiScaleSegmenter:
         )
 
         if score < self.config.min_register_diff or split_idx is None:
-            return [(span_text, prob_chain, current_embedding)]
+            return [(span_text, new_chain, current_embedding)]
 
         # For splits, only pass the parent probabilities without current level
         left_segments = self.segment_recursive(
             text,
             sentences[:split_idx],
             sent_spans[:split_idx],
-            prob_chain,
+            new_chain,
             depth + 1,
             "left",
         )
@@ -261,7 +261,7 @@ class MultiScaleSegmenter:
             text,
             sentences[split_idx:],
             sent_spans[split_idx:],
-            prob_chain,
+            new_chain,
             depth + 1,
             "right",
         )
