@@ -124,7 +124,7 @@ class MultiScaleSegmenter:
             np.sum((np.sqrt(p1_stack) - np.sqrt(p2_stack)) ** 2, axis=1)
         ) / np.sqrt(2)
 
-        return np.mean(h_distances) / (len(regs1) + len(regs2) - 2), regs1, regs2
+        return np.mean(h_distances) / (len(regs1) + len(regs2) - 1), regs1, regs2
 
     def evaluate_split(
         self,
