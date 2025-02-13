@@ -193,21 +193,20 @@ class MultiScaleSegmenter:
             )
 
             # Short window (2+2)
-            score_short, short_regs_left, short_regs_right = self.evaluate_split(
+            score_short, _, _ = self.evaluate_split(
                 text, left_spans, right_spans, window_size=3
             )
             if score_short is not None:
                 scores.append(score_short * self.config.scale_weights["short"])
 
             # Long window (4+4)
-            score_long, long_regs_left, long_regs_right = self.evaluate_split(
+            score_long, _, _ = self.evaluate_split(
                 text, left_spans, right_spans, window_size=9
             )
             if score_long is not None:
                 scores.append(score_long * self.config.scale_weights["long"])
 
             total_score = np.sum(scores) if scores else 0.0
-            # print(f"Depth: {depth}, Side: {side}, Split: {i}, Score: {total_score}")
             if total_score > best_score:
                 best_score = total_score
                 best_split = i
@@ -215,7 +214,7 @@ class MultiScaleSegmenter:
                 best_regs_right = whole_regs_right
 
         print(
-            f"Depth: {depth}, Side: {side}, Best split: {best_split}, Best score: {best_score}, Best regs left: {best_regs_left}, Best regs right: {best_regs_right}"
+            f"Depth: {depth}, Side: {side}, Best split: {best_split}, Best score: {best_score}, Best regs left: {[LABELS[int(x)] for x in best_regs_left]}, Best regs right: {[LABELS[int(x)] for x in best_regs_right]}"
         )
         return best_split, best_score
 
