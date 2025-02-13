@@ -224,38 +224,55 @@ class MultiScaleSegmenter:
         text: str,
         sentences: List[str],
         sent_spans: List[Tuple[int, int]],
+        parent_probs: List[np.ndarray] = None,
         depth: int = 0,
         side: str = "root",
-    ) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
+    ) -> List[Tuple[str, List[np.ndarray], torch.Tensor]]:
         """Recursively segment text using binary splitting."""
+        if parent_probs is None:
+            parent_probs = []
+
         total_tokens = sent_spans[-1][1] - sent_spans[0][0]
 
+        # Get probabilities for current segment
+        span_text = " ".join(sentences)
+        current_probs, current_embedding = self.get_register_probs(span_text)
+
+        # If too small to split further
         if total_tokens < 2 * self.config.min_tokens:
-            span_text = " ".join(sentences)
-            probs, embedding = self.get_register_probs(span_text)
-            return [(span_text, probs, embedding)]
+            return [(span_text, parent_probs + [current_probs], current_embedding)]
 
         split_idx, score = self.find_best_split(
             text, sentences, sent_spans, depth, side
         )
 
         if score < self.config.min_register_diff or split_idx is None:
-            span_text = " ".join(sentences)
-            probs, embedding = self.get_register_probs(span_text)
-            return [(span_text, probs, embedding)]
+            return [(span_text, parent_probs + [current_probs], current_embedding)]
 
+        # Pass accumulated probabilities to recursive calls
         left_segments = self.segment_recursive(
-            text, sentences[:split_idx], sent_spans[:split_idx], depth + 1, "left"
+            text,
+            sentences[:split_idx],
+            sent_spans[:split_idx],
+            parent_probs + [current_probs],
+            depth + 1,
+            "left",
         )
         right_segments = self.segment_recursive(
-            text, sentences[split_idx:], sent_spans[split_idx:], depth + 1, "right"
+            text,
+            sentences[split_idx:],
+            sent_spans[split_idx:],
+            parent_probs + [current_probs],
+            depth + 1,
+            "right",
         )
 
         return left_segments + right_segments
 
-    def segment_text(self, text: str) -> List[Tuple[str, np.ndarray, torch.Tensor]]:
+    def segment_text(
+        self, text: str
+    ) -> List[Tuple[str, List[np.ndarray], torch.Tensor]]:
         """Main entry point for text segmentation."""
-        # Clear the prediction cache for each new document
         self._prediction_cache = {}
         text = self.truncate_text(text)
         sent_detector = PunktSentenceTokenizer()
@@ -284,15 +301,13 @@ class MultiScaleSegmenter:
 
         if not sent_spans:
             probs, embedding = self.get_register_probs(text)
-            return [(text, probs, embedding)]
+            return [(text, [probs], embedding)]
 
-        # Merge short sentences into adequately-sized groups
-        # sentences, sent_spans = self.merge_short_sentences(sentences, sent_spans)
         segments = self.segment_recursive(text, sentences, sent_spans)
 
         if len(segments) == 1:
             probs, embedding = self.get_register_probs(text)
-            segments = [(text, probs, embedding)]
+            return [(text, [probs], embedding)]
 
         return segments
 
@@ -308,23 +323,35 @@ class MultiScaleSegmenter:
         return text
 
     def print_result(self, result: Dict):
-        """Print segmentation results."""
+        """Print segmentation results with hierarchical register information."""
         print(f"\nText [{result['id']}]")
         print(f"True label: {result['label']}")
-        registers = [
+
+        # Get document-level registers
+        doc_registers = [
             LABELS[i]
             for i, p in enumerate(result["text_probs"])
             if p >= self.config.classification_threshold
         ]
-        print(f"Predicted registers: {', '.join(registers)}")
+        print(f"Predicted registers: {', '.join(doc_registers)}")
         print("Segments:")
+
         for i, seg in enumerate(result["segments"], 1):
-            registers = [
-                LABELS[i]
-                for i, p in enumerate(seg["probs"])
-                if p >= self.config.classification_threshold
-            ]
-            print(f"\nSegment {i} [{', '.join(registers)}]:")
+            # Create hierarchical register string
+            register_chain = []
+            for prob_level in seg["probs"]:
+                level_registers = [
+                    LABELS[i]
+                    for i, p in enumerate(prob_level)
+                    if p >= self.config.classification_threshold
+                ]
+                if level_registers:  # Only add non-empty register lists
+                    register_chain.append(" ".join(level_registers))
+
+            # Join with '>' to show hierarchy
+            register_str = " > ".join(register_chain)
+
+            print(f"\nSegment {i} [{register_str}]:")
             print(seg["text"])
             print("---")
 
@@ -379,12 +406,15 @@ def main(model_path, dataset_path, output_path):
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": [round(x, 4) for x in text_probs.tolist()],
+                "text_probs": [round(x, 8) for x in text_probs.tolist()],
                 "text_embedding": text_embedding.tolist(),
                 "segments": [
                     {
                         "text": text,
-                        "probs": [round(x, 4) for x in probs.tolist()],
+                        "probs": [
+                            [round(x, 8) for x in prob_array.tolist()]
+                            for prob_array in probs
+                        ],
                         "embedding": emb.tolist(),
                     }
                     for text, probs, emb in segments
