@@ -25,7 +25,7 @@ class MultiScaleConfig:
     min_tokens: int = 100  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.05
-    scale_weights = {"short": 0.1, "long": 0.15, "whole": 0.75}
+    scale_weights = {"short": 1 / 3, "long": 1 / 3, "whole": 1 / 3}
 
 
 class MultiScaleSegmenter:
@@ -140,11 +140,9 @@ class MultiScaleSegmenter:
 
         left_window = (left_spans[-window_size][0], left_spans[-1][1])
         right_window = (right_spans[0][0], right_spans[window_size - 1][1])
-        print("left_window:", left_window)
+
         left_text = self.get_text_for_span(text, left_window[0], left_window[1])
-        print("right_window:", right_window)
         right_text = self.get_text_for_span(text, right_window[0], right_window[1])
-        print("parent: ", left_window[0], right_window[1])
         parent_text = self.get_text_for_span(text, left_window[0], right_window[1])
 
         left_probs, _ = self.get_register_probs(left_text)
@@ -200,14 +198,18 @@ class MultiScaleSegmenter:
                 text, left_spans, right_spans, window_size=3
             )
             if score_short is not None:
-                scores.append(score_short * self.config.scale_weights["short"])
+                scores.append(
+                    score_short * self.config.scale_weights["short"] * min_tokens / 8192
+                )
 
             # Long window (4+4)
             score_long, _, _ = self.evaluate_split(
                 text, left_spans, right_spans, window_size=9
             )
             if score_long is not None:
-                scores.append(score_long * self.config.scale_weights["long"])
+                scores.append(
+                    score_long * self.config.scale_weights["long"] * min_tokens / 8192
+                )
 
             total_score = np.sum(scores) if scores else 0.0
             if total_score > best_score:
