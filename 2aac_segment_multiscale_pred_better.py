@@ -256,14 +256,12 @@ class MultiScaleSegmenter:
             all_probs = parent_probs + [current_probs]
             return [(span_text, all_probs, current_embedding)]
 
-        # Pass accumulated probabilities to recursive calls
-        current_level_probs = parent_probs + [current_probs]
-
+        # For splits, only pass the parent probabilities without current level
         left_segments = self.segment_recursive(
             text,
             sentences[:split_idx],
             sent_spans[:split_idx],
-            current_level_probs,
+            parent_probs,  # Don't add current_probs here
             depth + 1,
             "left",
             full_text_probs,
@@ -272,7 +270,7 @@ class MultiScaleSegmenter:
             text,
             sentences[split_idx:],
             sent_spans[split_idx:],
-            current_level_probs,
+            parent_probs,  # Don't add current_probs here
             depth + 1,
             "right",
             full_text_probs,
