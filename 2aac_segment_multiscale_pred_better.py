@@ -94,6 +94,7 @@ class MultiScaleSegmenter:
         """Get the original text corresponding to a token span."""
         char_start = self.offset_mapping[start_token][0]
         char_end = self.offset_mapping[end_token - 1][1]
+        print(text[char_start:char_end])
         return text[char_start:char_end]
 
     def compute_register_distinctness(
@@ -139,9 +140,11 @@ class MultiScaleSegmenter:
 
         left_window = (left_spans[-window_size][0], left_spans[-1][1])
         right_window = (right_spans[0][0], right_spans[window_size - 1][1])
-
+        print("left_window:", left_window)
         left_text = self.get_text_for_span(text, left_window[0], left_window[1])
+        print("right_window:", right_window)
         right_text = self.get_text_for_span(text, right_window[0], right_window[1])
+        print("parent: ", left_window[0], right_window[1])
         parent_text = self.get_text_for_span(text, left_window[0], right_window[1])
 
         left_probs, _ = self.get_register_probs(left_text)
@@ -228,8 +231,6 @@ class MultiScaleSegmenter:
         side: str = "root",
     ) -> List[Tuple[str, List[np.ndarray], torch.Tensor]]:
         """Recursively segment text using binary splitting."""
-
-        total_tokens = sent_spans[-1][-1] - sent_spans[0][0]
 
         # Get probabilities for current segment
         span_text = self.get_text_for_span(text, sent_spans[0][0], sent_spans[-1][-1])
