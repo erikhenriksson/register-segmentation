@@ -163,7 +163,8 @@ class MultiScaleSegmenter:
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
     ) -> float:
-        """Compute how distinct two spans are using Hellinger distance."""
+        """Compute how distinct two spans are using cosine distance."""
+        # Get active registers using threshold
         regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
         regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
         parent_regs = (
@@ -172,6 +173,7 @@ class MultiScaleSegmenter:
             else set()
         )
 
+        # Same early return conditions as before
         if not (regs1 and regs2):
             return 0.0, [], []
         if regs1 == parent_regs == regs2:
@@ -179,16 +181,14 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        # For each probability, treat as binary distribution [p, 1-p]
-        p1_stack = np.column_stack([probs1, 1 - probs1])
-        p2_stack = np.column_stack([probs2, 1 - probs2])
-
-        # Compute Hellinger distance for each label
-        h_distances = np.sqrt(
-            np.sum((np.sqrt(p1_stack) - np.sqrt(p2_stack)) ** 2, axis=1)
-        ) / np.sqrt(2)
-
-        return np.mean(h_distances) / (len(regs1) + len(regs2) - 1), regs1, regs2
+        # Compute cosine distance
+        similarity = np.dot(probs1, probs2) / (np.linalg.norm(probs1) * np.linalg.norm(probs2))
+        distance = 1 - similarity
+        
+        # Normalize by number of active registers as in original
+        normalized_distance = distance / (len(regs1) + len(regs2) - 1)
+        
+        return normalized_distance, regs1, regs2
 
     def evaluate_split(
         self,
