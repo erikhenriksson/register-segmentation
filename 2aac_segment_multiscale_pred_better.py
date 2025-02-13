@@ -47,6 +47,69 @@ class MultiScaleSegmenter:
         # Cache for predictions on text segments
         self._prediction_cache = {}
 
+    def get_register_probs_batch(
+        self, texts: List[str]
+    ) -> Tuple[List[np.ndarray], List[torch.Tensor]]:
+        """Get register probabilities and embeddings for a batch of texts."""
+        # Check cache first and collect uncached texts
+        uncached_texts = []
+        uncached_indices = []
+        cached_results = []
+
+        for i, text in enumerate(texts):
+            if text in self._prediction_cache:
+                cached_results.append(self._prediction_cache[text])
+            else:
+                uncached_texts.append(text)
+                uncached_indices.append(i)
+
+        if not uncached_texts:
+            probs = [result[0] for result in cached_results]
+            embeddings = [result[1] for result in cached_results]
+            return probs, embeddings
+
+        # Tokenize all uncached texts at once
+        inputs = self.tokenizer(
+            uncached_texts,
+            truncation=True,
+            max_length=self.config.max_length,
+            return_tensors="pt",
+            padding=True,
+            add_special_tokens=True,
+        )
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            batch_probs = torch.sigmoid(outputs.logits).cpu().numpy()
+            last_hidden_state = outputs.hidden_states[-1]
+
+        attention_mask = inputs["attention_mask"].unsqueeze(-1)
+        batch_embeddings = (last_hidden_state * attention_mask).sum(
+            dim=1
+        ) / attention_mask.sum(dim=1)
+
+        # Cache the results and prepare final output
+        all_probs = []
+        all_embeddings = []
+        cached_idx = 0
+        uncached_idx = 0
+
+        for i in range(len(texts)):
+            if i in uncached_indices:
+                probs = batch_probs[uncached_idx]
+                embedding = batch_embeddings[uncached_idx]
+                self._prediction_cache[texts[i]] = (probs, embedding)
+                all_probs.append(probs)
+                all_embeddings.append(embedding)
+                uncached_idx += 1
+            else:
+                all_probs.append(cached_results[cached_idx][0])
+                all_embeddings.append(cached_results[cached_idx][1])
+                cached_idx += 1
+
+        return all_probs, all_embeddings
+
     def get_register_probs(self, text: str) -> Tuple[np.ndarray, torch.Tensor]:
         """Get register probabilities and embedding for text by running full model."""
         # Check cache first
@@ -145,9 +208,11 @@ class MultiScaleSegmenter:
         right_text = self.get_text_for_span(text, right_window[0], right_window[1])
         parent_text = self.get_text_for_span(text, left_window[0], right_window[1])
 
-        left_probs, _ = self.get_register_probs(left_text)
-        right_probs, _ = self.get_register_probs(right_text)
-        parent_probs, _ = self.get_register_probs(parent_text)
+        # Batch the three predictions together
+        batch_probs, _ = self.get_register_probs_batch(
+            [left_text, right_text, parent_text]
+        )
+        left_probs, right_probs, parent_probs = batch_probs
 
         return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
