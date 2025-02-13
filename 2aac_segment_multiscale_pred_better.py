@@ -233,17 +233,9 @@ class MultiScaleSegmenter:
 
         # Get probabilities for current segment
         span_text = self.get_text_for_span(text, sent_spans[0][0], sent_spans[-1][-1])
-        print(span_text)
-
-        print(sentences)
-        exit()
         current_probs, current_embedding = self.get_register_probs(span_text)
 
         new_chain = prob_chain + [current_probs]
-
-        # If too small to split further
-        if total_tokens < 2 * self.config.min_tokens:
-            return [(span_text, prob_chain, current_embedding)]
 
         split_idx, score = self.find_best_split(
             text, sentences, sent_spans, depth, side
