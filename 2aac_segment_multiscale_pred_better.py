@@ -462,7 +462,7 @@ class MultiScaleSegmenter:
         sent_char_spans = list(sent_detector.span_tokenize(text))
         sentences = [text[s:e] for s, e in sent_char_spans]
 
-        self.prepare_document(text)
+        # self.prepare_document(text)
         offset_mapping = np.array(self.offset_mapping)
 
         sent_spans = []
@@ -575,6 +575,8 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
+            # First prepare the document
+            segmenter.prepare_document(text)
             text_probs, text_embedding = segmenter.get_register_probs(text)
             segments = segmenter.segment_text(text)
 
