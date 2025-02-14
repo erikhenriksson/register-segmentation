@@ -83,8 +83,6 @@ class MultiScaleSegmenter:
 
     def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
         """Get mean-pooled embedding for token span using cached embeddings."""
-        if self.token_embeddings is None:
-            raise ValueError("Must call prepare_document before get_span_embedding")
 
         span_embeddings = self.token_embeddings[start_token:end_token]
         span_mask = self.attention_mask[start_token:end_token]
@@ -175,6 +173,7 @@ class MultiScaleSegmenter:
             max_length=self.config.max_length,
             return_tensors="pt",
             add_special_tokens=True,
+            return_offsets_mapping=True,
         )
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
@@ -197,18 +196,6 @@ class MultiScaleSegmenter:
         # Cache the results
         self._prediction_cache[text] = (probs, mean_embedding)
         return probs, mean_embedding
-
-    def prepare_document(self, text: str):
-        """Store offset mapping for token/character conversion."""
-        inputs = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.config.max_length,
-            return_tensors="pt",
-            return_offsets_mapping=True,
-            add_special_tokens=True,
-        )
-        self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
 
     def get_text_for_span(self, text: str, start_token: int, end_token: int) -> str:
         """Get the original text corresponding to a token span."""
