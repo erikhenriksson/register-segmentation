@@ -26,7 +26,7 @@ class MultiScaleConfig:
     classification_threshold: float = 0.70
     min_register_diff: float = 0.04
     scale_weights = {"short": 1, "long": 1, "whole": 1}
-    use_hidden_states: bool = False
+    use_hidden_states: bool = True
 
 
 class MultiScaleSegmenter:
