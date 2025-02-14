@@ -239,10 +239,6 @@ def main(model_path, dataset_path, output_path):
 
             text = row["text"]
             text_probs, segments = segmenter.segment_text(text)
-            for j, (seg_text, seg_probs) in enumerate(segments):
-                print(seg_text)
-                print(seg_probs)
-                exit()
 
             result = {
                 "id": i,
@@ -251,7 +247,7 @@ def main(model_path, dataset_path, output_path):
                 "segments": [
                     {
                         "text": text,
-                        "probs": [[round(x, 8) for x in probs.tolist()]],
+                        "probs": [[round(float(x), 8) for x in probs]],
                     }
                     for text, probs in segments
                 ],
