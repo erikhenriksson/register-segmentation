@@ -86,6 +86,10 @@ class Segmenter:
         # Get overall text prediction
         text_probs = self.get_predictions(text)[0]
 
+        # Keep track of previous window's active registers
+        prev_active_registers = None
+        current_segment_start = 0
+
         while current_pos < text_length:
             end_pos = min(current_pos + self.config.window_size, text_length)
             window_text = text[current_pos:end_pos]
@@ -93,50 +97,75 @@ class Segmenter:
             # Get predictions for current window
             window_probs = self.get_predictions(window_text)[0]
 
-            # If predictions meet threshold, find exact boundary
-            if torch.any(window_probs >= self.config.threshold):
-                boundary, probs = self.find_segment_boundary(text, current_pos, end_pos)
+            # Determine active registers in this window
+            active_registers = set(
+                i for i, p in enumerate(window_probs) if p >= self.config.threshold
+            )
 
-                if boundary > current_pos:
-                    segment_text = text[current_pos:boundary]
-                    segments.append(
-                        (
-                            segment_text,
-                            [window_probs.tolist()],
-                            [],  # Placeholder for embeddings if needed
-                        )
-                    )
-                    current_pos = boundary
-                else:
-                    current_pos += self.config.overlap
+            if prev_active_registers is None:
+                # First window - initialize
+                prev_active_registers = active_registers
+                current_segment_start = current_pos
+            elif active_registers != prev_active_registers:
+                # Register composition changed - find exact boundary
+                boundary, probs = self.find_segment_boundary(
+                    text, current_segment_start, end_pos
+                )
+
+                # Add segment up to boundary
+                segment_text = text[current_segment_start:boundary]
+                segments.append(
+                    (segment_text, [self.get_predictions(segment_text)[0].tolist()], [])
+                )
+
+                # Start new segment
+                current_segment_start = boundary
+                current_pos = boundary
+                prev_active_registers = active_registers
             else:
+                # Same registers - just move window
                 current_pos += self.config.overlap
 
-        # Add any remaining text
-        if current_pos < text_length:
-            final_text = text[current_pos:]
+        # Add final segment if needed
+        if current_segment_start < text_length:
+            final_text = text[current_segment_start:]
             final_probs = self.get_predictions(final_text)[0]
             segments.append((final_text, [final_probs.tolist()], []))
 
         return text_probs, segments
 
     def print_result(self, result: Dict):
-        """Print segmentation results."""
-        print(f"\nDocument ID: {result['id']}")
-        print(f"True Label: {result['label']}")
-        print("Overall Probabilities:")
-        for label, prob in zip(self.config.labels, result["text_probs"]):
-            if prob >= self.config.threshold:
-                print(f"  {label}: {prob:.4f}")
+        """Print segmentation results with hierarchical register information."""
+        print(f"\nText [{result['id']}]")
+        print(f"True label: {result['label']}")
 
-        print("\nSegments:")
-        for i, segment in enumerate(result["segments"]):
-            print(f"\nSegment {i+1}:")
-            print(f"Length: {len(segment['text'])} chars")
-            print("Probabilities:")
-            for label, prob in zip(self.config.labels, segment["probs"][0]):
-                if prob >= self.config.threshold:
-                    print(f"  {label}: {prob:.4f}")
+        # Get document-level registers
+        doc_registers = [
+            self.config.labels[i]
+            for i, p in enumerate(result["text_probs"])
+            if p >= self.config.threshold
+        ]
+        print(f"Predicted registers: {', '.join(doc_registers)}")
+        print("Segments:")
+
+        for i, seg in enumerate(result["segments"], 1):
+            # Create hierarchical register string
+            register_chain = []
+            for prob_level in seg["probs"]:
+                level_registers = [
+                    self.config.labels[i]
+                    for i, p in enumerate(prob_level)
+                    if p >= self.config.threshold
+                ]
+                if level_registers:  # Only add non-empty register lists
+                    register_chain.append(" ".join(level_registers))
+
+            # Join with '>' to show hierarchy
+            register_str = " > ".join(register_chain)
+
+            print(f"\nSegment {i} [{register_str}]:")
+            print(seg["text"])
+            print("---")
 
 
 def get_last_processed_id(output_path):
