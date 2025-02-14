@@ -187,10 +187,7 @@ class MultiScaleSegmenter:
         )
         distance = 1 - similarity
 
-        # Normalize by number of active registers as in original
-        normalized_distance = distance / (len(regs1) + len(regs2) - 1)
-
-        return normalized_distance, regs1, regs2
+        return distance, regs1, regs2
 
     def evaluate_split(
         self,
