@@ -48,6 +48,15 @@ class MultiScaleSegmenter:
         # Cache for predictions on text segments
         self._prediction_cache = {}
 
+        # Cache for token representations and offset mappings
+        self.token_embeddings = None
+        self.attention_mask = None
+        self.tokens = None
+
+        # Extract classification head components
+        self.head = self.model.head
+        self.classifier = self.model.classifier
+
     def safe_mean_pooling(
         self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
