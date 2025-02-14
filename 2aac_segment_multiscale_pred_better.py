@@ -181,7 +181,7 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        epsilon = 1e-15
+        epsilon = 1e-7
         probs1 = np.clip(probs1, epsilon, 1 - epsilon)
         probs2 = np.clip(probs2, epsilon, 1 - epsilon)
         # Calculate BCE
