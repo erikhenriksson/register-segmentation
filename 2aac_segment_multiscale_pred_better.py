@@ -26,6 +26,7 @@ class MultiScaleConfig:
     classification_threshold: float = 0.70
     min_register_diff: float = 0.04
     scale_weights = {"short": 1, "long": 1, "whole": 1}
+    predict_from_embeddings = True
 
 
 class MultiScaleSegmenter:
@@ -46,6 +47,40 @@ class MultiScaleSegmenter:
 
         # Cache for predictions on text segments
         self._prediction_cache = {}
+
+    def safe_mean_pooling(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Safe mean pooling that handles edge cases to prevent infinite values"""
+        epsilon = 1e-10
+        attention_mask = attention_mask.unsqueeze(-1)
+        mask_sum = attention_mask.sum(dim=0) + epsilon
+        mask_sum = torch.maximum(
+            mask_sum,
+            torch.tensor(epsilon, device=mask_sum.device, dtype=hidden_states.dtype),
+        )
+        weighted_sum = (hidden_states * attention_mask).sum(dim=0)
+        pooled = weighted_sum / mask_sum
+        pooled = torch.clamp(pooled, min=-100.0, max=100.0)
+        return pooled.to(dtype=torch.float16)
+
+    def predict_from_embeddings(self, embeddings: torch.Tensor) -> np.ndarray:
+        """Get register probabilities using cached model head and classifier"""
+        with torch.no_grad():
+            hidden = self.head(embeddings.unsqueeze(0))
+            logits = self.classifier(hidden)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+        return probs
+
+    def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
+        """Get mean-pooled embedding for token span using cached embeddings."""
+        if self.token_embeddings is None:
+            raise ValueError("Must call prepare_document before get_span_embedding")
+
+        span_embeddings = self.token_embeddings[start_token:end_token]
+        span_mask = self.attention_mask[start_token:end_token]
+        embedding = self.safe_mean_pooling(span_embeddings, span_mask)
+        return embedding
 
     def get_register_probs_batch(
         self, texts: List[str]
@@ -110,8 +145,17 @@ class MultiScaleSegmenter:
 
         return all_probs, all_embeddings
 
-    def get_register_probs(self, text: str) -> Tuple[np.ndarray, torch.Tensor]:
-        """Get register probabilities and embedding for text by running full model."""
+    def get_register_probs(
+        self, text: str, start_token: int = None, end_token: int = None
+    ) -> Tuple[np.ndarray, torch.Tensor]:
+        """Get register probabilities and embedding for text"""
+
+        if self.predict_from_embeddings and self.token_embeddings is not None:
+            span_embedding = self.get_span_embedding(start_token, end_token)
+            probs = self.predict_from_embeddings(span_embedding)
+
+            return probs, span_embedding
+
         # Check cache first
         if text in self._prediction_cache:
             return self._prediction_cache[text]
@@ -129,6 +173,10 @@ class MultiScaleSegmenter:
             outputs = self.model(**inputs)
             probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
             last_hidden_state = outputs.hidden_states[-1]
+            if not self.token_embeddings:
+                self.token_embeddings = outputs.hidden_states[-1][0].detach()
+                self.attention_mask = inputs["attention_mask"][0]
+                self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
 
         attention_mask = inputs["attention_mask"].unsqueeze(
             -1
@@ -210,11 +258,23 @@ class MultiScaleSegmenter:
         right_text = self.get_text_for_span(text, right_window[0], right_window[1])
         parent_text = self.get_text_for_span(text, left_window[0], right_window[1])
 
+        left_probs, _ = self.get_register_probs(
+            left_text, left_window[0], left_window[1]
+        )
+        right_probs, _ = self.get_register_probs(
+            right_text, right_window[0], right_window[1]
+        )
+        parent_probs, _ = self.get_register_probs(
+            parent_text, left_window[0], right_window[1]
+        )
+
+        """
         # Batch the three predictions together
         batch_probs, _ = self.get_register_probs_batch(
             [left_text, right_text, parent_text]
         )
         left_probs, right_probs, parent_probs = batch_probs
+        """
 
         return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
 
@@ -311,7 +371,9 @@ class MultiScaleSegmenter:
 
         # Get probabilities for current segment
         span_text = self.get_text_for_span(text, sent_spans[0][0], sent_spans[-1][-1])
-        current_probs, current_embedding = self.get_register_probs(span_text)
+        current_probs, current_embedding = self.get_register_probs(
+            span_text, sent_spans[0][0], sent_spans[-1][-1]
+        )
 
         new_chain = prob_chain + [current_probs]
 
@@ -346,13 +408,10 @@ class MultiScaleSegmenter:
         self, text: str
     ) -> List[Tuple[str, List[np.ndarray], torch.Tensor]]:
         """Main entry point for text segmentation."""
-        self._prediction_cache = {}
-        text = self.truncate_text(text)
         sent_detector = PunktSentenceTokenizer()
         sent_char_spans = list(sent_detector.span_tokenize(text))
         sentences = [text[s:e] for s, e in sent_char_spans]
 
-        self.prepare_document(text)
         offset_mapping = np.array(self.offset_mapping)
 
         sent_spans = []
@@ -371,10 +430,6 @@ class MultiScaleSegmenter:
             if token_start is None or token_end is None:
                 token_start, token_end = 0, 0
             sent_spans.append((int(token_start), int(token_end)))
-
-        if not sent_spans:
-            probs, embedding = self.get_register_probs(text)
-            return [(text, [probs], embedding)]
 
         return self.segment_recursive(text, sentences, sent_spans)
 
@@ -465,6 +520,7 @@ def main(model_path, dataset_path, output_path):
                 continue
 
             text = row["text"]
+            text = segmenter.truncate_text(text)
             text_probs, text_embedding = segmenter.get_register_probs(text)
             segments = segmenter.segment_text(text)
 
