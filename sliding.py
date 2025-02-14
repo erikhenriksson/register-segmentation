@@ -1,21 +1,22 @@
 import torch
 import numpy as np
 from dataclasses import dataclass
-import json
-import sys
-import glob
-import pandas as pd
+from typing import List, Tuple, Dict, Set
+from nltk.tokenize import PunktSentenceTokenizer
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from typing import List, Tuple, Dict
-import torch.nn.functional as F
+import json
+import pandas as pd
+import glob
+import sys
+from torch.nn.functional import sigmoid
 
 
 @dataclass
 class Config:
-    window_size: int = 4096  # Half of max context size
-    overlap: int = 2048  # 50% overlap
-    threshold: float = 0.70
     labels: List[str] = None
+    threshold: float = 0.70
+    window_size: int = 8  # Number of sentences in each window
+    stride: int = 4  # Stride between windows
 
     def __post_init__(self):
         if self.labels is None:
@@ -25,112 +26,144 @@ class Config:
 class Segmenter:
     def __init__(self, model_path: str, config: Config):
         self.config = config
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "answerdotai/ModernBERT-large", use_fast=True
+        )
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path,
             torch_dtype=torch.float16,
             output_hidden_states=True,
         ).to("cuda")
         self.model.eval()
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            "answerdotai/ModernBERT-large", use_fast=True
-        )
+        self.sent_tokenizer = PunktSentenceTokenizer()
 
-    def get_predictions(self, text: str) -> torch.Tensor:
-        """Get model predictions for a text segment."""
+    def predict(self, text: str) -> torch.Tensor:
+        """Predict register probabilities for a text segment."""
         inputs = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=8192,
-            return_tensors="pt",
+            text, max_length=512, truncation=True, padding=True, return_tensors="pt"
         ).to("cuda")
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            logits = outputs.logits
-            probs = torch.sigmoid(logits)  # For multilabel classification
+            probs = sigmoid(
+                outputs.logits
+            )  # Changed from softmax to sigmoid for multilabel
 
-        return probs.cpu()
+        return probs[0].cpu()
 
-    def find_segment_boundary(
-        self, text: str, start: int, end: int
-    ) -> Tuple[int, List[float]]:
-        """Use binary search to find the exact point where register changes."""
-        if end - start <= 100:  # Minimum segment size
-            return start, self.get_predictions(text[start:end])[0].tolist()
+    def get_window_text(
+        self, sentences: List[str], start_idx: int, window_size: int
+    ) -> str:
+        """Get concatenated text for a window of sentences."""
+        end_idx = min(start_idx + window_size, len(sentences))
+        return " ".join(sentences[start_idx:end_idx])
 
-        mid = (start + end) // 2
-        left_probs = self.get_predictions(text[start:mid])[0]
-        right_probs = self.get_predictions(text[mid:end])[0]
+    def get_active_registers(self, probs: torch.Tensor) -> Set[int]:
+        """Get indices of active registers based on threshold."""
+        return {i for i, p in enumerate(probs) if p >= self.config.threshold}
 
-        # Check if predictions are significantly different
-        diff = torch.abs(left_probs - right_probs)
-        if torch.any(diff > 0.3):  # Threshold for significant change
-            return mid, left_probs.tolist()
+    def jaccard_similarity(self, set1: Set[int], set2: Set[int]) -> float:
+        """Calculate Jaccard similarity between two sets of register indices."""
+        if not set1 and not set2:
+            return 1.0
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        return intersection / union if union > 0 else 0.0
 
-        # If no significant change, try both halves
-        left_boundary, left_p = self.find_segment_boundary(text, start, mid)
-        if left_boundary != start:
-            return left_boundary, left_p
+    def find_best_boundary(
+        self,
+        sentences: List[str],
+        start_context: List[str],
+        end_context: List[str],
+        uncertain_region: List[str],
+    ) -> Tuple[int, List[np.ndarray]]:
+        """Find the best boundary point in the uncertain region."""
+        best_score = float(
+            "inf"
+        )  # Changed to inf because we're looking for minimum similarity
+        best_boundary = 0
+        best_probs = None
 
-        right_boundary, right_p = self.find_segment_boundary(text, mid, end)
-        return right_boundary, right_p
+        # Try each possible boundary point
+        for i in range(len(uncertain_region) + 1):
+            left_text = " ".join(start_context + uncertain_region[:i])
+            right_text = " ".join(uncertain_region[i:] + end_context)
+
+            left_probs = self.predict(left_text)
+            right_probs = self.predict(right_text)
+
+            # Get active registers for each side
+            left_registers = self.get_active_registers(left_probs)
+            right_registers = self.get_active_registers(right_probs)
+
+            # Score based on Jaccard similarity (lower is better - we want distinct segments)
+            score = self.jaccard_similarity(left_registers, right_registers)
+
+            if score < best_score:
+                best_score = score
+                best_boundary = i
+                best_probs = [(left_probs.numpy(), right_probs.numpy())]
+
+        return best_boundary, best_probs
 
     def segment_text(
         self, text: str
-    ) -> Tuple[List[float], List[Tuple[str, List[float], List[float]]]]:
-        """Segment text using sliding windows and binary search."""
+    ) -> Tuple[torch.Tensor, List[Tuple[str, List[np.ndarray]]]]:
+        """Segment text into regions of different registers."""
+        # Tokenize into sentences
+        sentences = self.sent_tokenizer.tokenize(text)
+
+        # Get initial windows
+        windows = []
+        window_probs = []
+
+        for i in range(0, len(sentences), self.config.stride):
+            window_text = self.get_window_text(sentences, i, self.config.window_size)
+            if not window_text.strip():
+                continue
+
+            probs = self.predict(window_text)
+            windows.append((i, i + self.config.window_size, probs))
+            window_probs.append(probs)
+
+        # Find register transitions
         segments = []
-        current_pos = 0
-        text_length = len(text)
+        current_start = 0
+        current_registers = self.get_active_registers(window_probs[0])
 
-        # Get overall text prediction
-        text_probs = self.get_predictions(text)[0]
+        for i in range(1, len(windows)):
+            window_registers = self.get_active_registers(window_probs[i])
 
-        # Keep track of previous window's active registers
-        prev_active_registers = None
-        current_segment_start = 0
+            # Check if registers changed significantly
+            similarity = self.jaccard_similarity(current_registers, window_registers)
+            if similarity < 0.5:  # Threshold for considering it a transition
+                # Found a transition
+                start_idx = windows[i - 1][0]
+                end_idx = windows[i][1]
 
-        while current_pos < text_length:
-            end_pos = min(current_pos + self.config.window_size, text_length)
-            window_text = text[current_pos:end_pos]
+                # Get context for boundary search
+                start_context = sentences[:start_idx]
+                end_context = sentences[end_idx:]
+                uncertain_region = sentences[start_idx:end_idx]
 
-            # Get predictions for current window
-            window_probs = self.get_predictions(window_text)[0]
-
-            # Determine active registers in this window
-            active_registers = set(
-                i for i, p in enumerate(window_probs) if p >= self.config.threshold
-            )
-
-            if prev_active_registers is None:
-                # First window - initialize
-                prev_active_registers = active_registers
-                current_segment_start = current_pos
-            elif active_registers != prev_active_registers:
-                # Register composition changed - find exact boundary
-                boundary, probs = self.find_segment_boundary(
-                    text, current_segment_start, end_pos
+                boundary, boundary_probs = self.find_best_boundary(
+                    sentences, start_context, end_context, uncertain_region
                 )
 
-                # Add segment up to boundary
-                segment_text = text[current_segment_start:boundary]
-                segments.append(
-                    (segment_text, [self.get_predictions(segment_text)[0].tolist()], [])
-                )
+                # Add segment
+                segment_text = " ".join(sentences[current_start : start_idx + boundary])
+                segments.append((segment_text, boundary_probs))
 
-                # Start new segment
-                current_segment_start = boundary
-                current_pos = boundary
-                prev_active_registers = active_registers
-            else:
-                # Same registers - just move window
-                current_pos += self.config.overlap
+                current_start = start_idx + boundary
+                current_registers = window_registers
 
-        # Add final segment if needed
-        if current_segment_start < text_length:
-            final_text = text[current_segment_start:]
-            final_probs = self.get_predictions(final_text)[0]
-            segments.append((final_text, [final_probs.tolist()], []))
+        # Add final segment
+        final_text = " ".join(sentences[current_start:])
+        final_probs = [self.predict(final_text).numpy()]
+        segments.append((final_text, final_probs))
+
+        # Calculate document-level probabilities
+        text_probs = torch.mean(torch.stack([p for _, _, p in windows]), dim=0)
 
         return text_probs, segments
 
@@ -149,19 +182,14 @@ class Segmenter:
         print("Segments:")
 
         for i, seg in enumerate(result["segments"], 1):
-            # Create hierarchical register string
-            register_chain = []
-            for prob_level in seg["probs"]:
-                level_registers = [
-                    self.config.labels[i]
-                    for i, p in enumerate(prob_level)
-                    if p >= self.config.threshold
-                ]
-                if level_registers:  # Only add non-empty register lists
-                    register_chain.append(" ".join(level_registers))
-
-            # Join with '>' to show hierarchy
-            register_str = " > ".join(register_chain)
+            registers = [
+                self.config.labels[i]
+                for i, p in enumerate(
+                    seg["probs"][0][0]
+                )  # Changed to handle tuple of arrays
+                if p >= self.config.threshold
+            ]
+            register_str = ", ".join(registers) if registers else "Unknown"
 
             print(f"\nSegment {i} [{register_str}]:")
             print(seg["text"])
@@ -220,10 +248,11 @@ def main(model_path, dataset_path, output_path):
                     {
                         "text": text,
                         "probs": [
-                            [round(x, 8) for x in prob_array] for prob_array in probs
+                            [round(x, 8) for x in prob_array.tolist()]
+                            for prob_array in probs
                         ],
                     }
-                    for text, probs, emb in segments
+                    for text, probs in segments
                 ],
             }
 
