@@ -258,7 +258,9 @@ class MultiScaleSegmenter:
             min_tokens = min(left_length, right_length)
 
             scores.append(
-                score_whole * self.config.scale_weights["whole"] * min_tokens / 8192
+                score_whole
+                * self.config.scale_weights["whole"]
+                * ((min_tokens / 8192) ** (1 / 2))
             )
 
             # Short window (2+2)
