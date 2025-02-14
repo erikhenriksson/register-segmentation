@@ -239,6 +239,10 @@ def main(model_path, dataset_path, output_path):
 
             text = row["text"]
             text_probs, segments = segmenter.segment_text(text)
+            for j, (seg_text, seg_probs) in enumerate(segments):
+                print(seg_text)
+                print(seg_probs)
+                exit()
 
             result = {
                 "id": i,
