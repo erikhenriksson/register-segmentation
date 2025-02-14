@@ -26,7 +26,7 @@ class MultiScaleConfig:
     classification_threshold: float = 0.70
     min_register_diff: float = 0.04
     scale_weights = {"short": 1, "long": 1, "whole": 1}
-    use_hidden_states: bool = True
+    use_hidden_states: bool = False
 
 
 class MultiScaleSegmenter:
@@ -50,6 +50,7 @@ class MultiScaleSegmenter:
 
         # Extract classification head components if using hidden states
         if self.config.use_hidden_states:
+            print("Using hidden states for predictions")
             self.head = self.model.head
             self.classifier = self.model.classifier
             # Cache for token embeddings when using hidden states
@@ -97,21 +98,28 @@ class MultiScaleSegmenter:
             if text in self._prediction_cache:
                 return self._prediction_cache[text]
 
+            if self.token_embeddings is None:
+                # This should have been prepared by prepare_document
+                raise ValueError(
+                    "Must call prepare_document first when using hidden states mode"
+                )
+
+            # Get the token indices for this text
             inputs = self.tokenizer(
                 text,
                 truncation=True,
                 max_length=self.config.max_length,
                 return_tensors="pt",
                 add_special_tokens=True,
-            ).to("cuda")
+            )
 
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                last_hidden_state = outputs.hidden_states[-1][0]
-                attention_mask = inputs["attention_mask"][0]
+            # Use the cached embeddings directly
+            token_count = inputs["input_ids"].size(1)
+            span_embeddings = self.token_embeddings[:token_count]
+            span_mask = self.attention_mask[:token_count]
 
-                embedding = self.safe_mean_pooling(last_hidden_state, attention_mask)
-                probs = self.predict_from_embeddings(embedding)
+            embedding = self.safe_mean_pooling(span_embeddings, span_mask)
+            probs = self.predict_from_embeddings(embedding)
 
             self._prediction_cache[text] = (probs, embedding)
             return probs, embedding
@@ -162,37 +170,50 @@ class MultiScaleSegmenter:
             embeddings = [result[1] for result in cached_results]
             return probs, embeddings
 
-        # Tokenize all uncached texts at once
-        inputs = self.tokenizer(
-            uncached_texts,
-            truncation=True,
-            max_length=self.config.max_length,
-            return_tensors="pt",
-            padding=True,
-            add_special_tokens=True,
-        ).to("cuda")
+        if self.config.use_hidden_states:
+            # Using hidden states mode - we should already have token_embeddings cached
+            if self.token_embeddings is None:
+                raise ValueError(
+                    "Must call prepare_document first when using hidden states mode"
+                )
 
-        with torch.no_grad():
-            outputs = self.model(**inputs)
+            batch_embeddings = []
+            batch_probs = []
 
-            if self.config.use_hidden_states:
-                # Use hidden states method
-                last_hidden_state = outputs.hidden_states[-1]
-                attention_mask = inputs["attention_mask"]
-                batch_embeddings = []
-                batch_probs = []
+            # Process each text using cached embeddings
+            for text in uncached_texts:
+                inputs = self.tokenizer(
+                    text,
+                    truncation=True,
+                    max_length=self.config.max_length,
+                    return_tensors="pt",
+                    add_special_tokens=True,
+                )
+                token_count = inputs["input_ids"].size(1)
+                span_embeddings = self.token_embeddings[:token_count]
+                span_mask = self.attention_mask[:token_count]
 
-                for i in range(last_hidden_state.size(0)):
-                    embedding = self.safe_mean_pooling(
-                        last_hidden_state[i], attention_mask[i]
-                    )
-                    probs = self.predict_from_embeddings(embedding)
-                    batch_embeddings.append(embedding)
-                    batch_probs.append(probs)
+                embedding = self.safe_mean_pooling(span_embeddings, span_mask)
+                probs = self.predict_from_embeddings(embedding)
 
-                batch_probs = np.array(batch_probs)
-            else:
-                # Use full model method (original)
+                batch_embeddings.append(embedding)
+                batch_probs.append(probs)
+
+            batch_probs = np.array(batch_probs)
+
+        else:
+            # Original full model method
+            inputs = self.tokenizer(
+                uncached_texts,
+                truncation=True,
+                max_length=self.config.max_length,
+                return_tensors="pt",
+                padding=True,
+                add_special_tokens=True,
+            ).to("cuda")
+
+            with torch.no_grad():
+                outputs = self.model(**inputs)
                 batch_probs = torch.sigmoid(outputs.logits).cpu().numpy()
                 attention_mask = inputs["attention_mask"].unsqueeze(-1)
                 batch_embeddings = (outputs.hidden_states[-1] * attention_mask).sum(
