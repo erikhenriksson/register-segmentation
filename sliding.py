@@ -248,8 +248,7 @@ def main(model_path, dataset_path, output_path):
                     {
                         "text": text,
                         "probs": [
-                            [round(x, 8) for x in prob_array.tolist()]
-                            for prob_array in probs
+                            [round(x, 8) for x in prob_array] for prob_array in probs
                         ],
                     }
                     for text, probs in segments
