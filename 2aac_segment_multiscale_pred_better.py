@@ -517,6 +517,7 @@ def main(model_path, dataset_path, output_path):
 
             text = row["text"]
             text = segmenter.truncate_text(text)
+            segmenter.token_embeddings = None
             text_probs, text_embedding = segmenter.get_register_probs(text)
             segments = segmenter.segment_text(text)
 
