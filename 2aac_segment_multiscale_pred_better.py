@@ -181,12 +181,15 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
+        epsilon = 1e-15
+        probs1 = np.clip(probs1, epsilon, 1 - epsilon)
+        probs2 = np.clip(probs2, epsilon, 1 - epsilon)
         # Calculate BCE
-        bce = -(probs1 * np.log(probs2) + (1-probs1) * np.log(1-probs2))
-        
+        bce = -(probs1 * np.log(probs2) + (1 - probs1) * np.log(1 - probs2))
+
         # Take mean across all elements
         mean_bce = np.mean(bce)
-        
+
         return mean_bce, regs1, regs2
 
     def evaluate_split(
