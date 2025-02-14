@@ -24,8 +24,8 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.07
-    scale_weights = {"short": 0, "long": 0, "whole": 1}
+    min_register_diff: float = 0.04
+    scale_weights = {"short": 1, "long": 1, "whole": 1}
 
 
 class MultiScaleSegmenter:
@@ -181,17 +181,16 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        # Clip more aggressively, and ensure we clip BOTH sides properly
-        epsilon = 1e-3
-        probs2 = np.clip(probs2, epsilon, 1.0 - epsilon)  # This ensures max is 0.999999
+        # Compute cosine distance
+        similarity = np.dot(probs1, probs2) / (
+            np.linalg.norm(probs1) * np.linalg.norm(probs2)
+        )
+        distance = 1 - similarity
 
-        # Now the logs should be safe since:
-        # log(probs2) will be at worst log(epsilon)
-        # log(1-probs2) will be at worst log(epsilon)
-        bce = -(probs1 * np.log(probs2) + (1 - probs1) * np.log(1 - probs2))
-        mean_bce = np.mean(bce)
+        # Normalize by number of active registers as in original
+        normalized_distance = distance / (len(regs1) + len(regs2) - 1)
 
-        return mean_bce, regs1, regs2
+        return normalized_distance, regs1, regs2
 
     def evaluate_split(
         self,
@@ -258,9 +257,7 @@ class MultiScaleSegmenter:
             min_tokens = min(left_length, right_length)
 
             scores.append(
-                score_whole
-                * self.config.scale_weights["whole"]
-                * ((min_tokens / 8192) ** (1 / 2))
+                score_whole * self.config.scale_weights["whole"] * min_tokens / 8192
             )
 
             # Short window (2+2)
