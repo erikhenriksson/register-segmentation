@@ -26,6 +26,7 @@ class MultiScaleConfig:
     classification_threshold: float = 0.70
     min_register_diff: float = 0.04
     scale_weights = {"short": 1, "long": 1, "whole": 1}
+    use_hidden_states: bool = True
 
 
 class MultiScaleSegmenter:
@@ -46,6 +47,99 @@ class MultiScaleSegmenter:
 
         # Cache for predictions on text segments
         self._prediction_cache = {}
+
+        # Extract classification head components if using hidden states
+        if self.config.use_hidden_states:
+            self.head = self.model.head
+            self.classifier = self.model.classifier
+            # Cache for token embeddings when using hidden states
+            self.token_embeddings = None
+            self.attention_mask = None
+
+    def safe_mean_pooling(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Safe mean pooling that handles edge cases to prevent infinite values"""
+        epsilon = 1e-10
+        attention_mask = attention_mask.unsqueeze(-1)
+        mask_sum = attention_mask.sum(dim=0) + epsilon
+        mask_sum = torch.maximum(
+            mask_sum,
+            torch.tensor(epsilon, device=mask_sum.device, dtype=hidden_states.dtype),
+        )
+        weighted_sum = (hidden_states * attention_mask).sum(dim=0)
+        pooled = weighted_sum / mask_sum
+        pooled = torch.clamp(pooled, min=-100.0, max=100.0)
+        return pooled.to(dtype=torch.float16)
+
+    def predict_from_embeddings(self, embeddings: torch.Tensor) -> np.ndarray:
+        """Get register probabilities using cached model head and classifier"""
+        with torch.no_grad():
+            hidden = self.head(embeddings.unsqueeze(0))
+            logits = self.classifier(hidden)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()[0][:8]
+        return probs
+
+    def get_span_embedding(self, start_token: int, end_token: int) -> torch.Tensor:
+        """Get mean-pooled embedding for token span using cached embeddings."""
+        if self.token_embeddings is None:
+            raise ValueError("Must call prepare_document before get_span_embedding")
+
+        span_embeddings = self.token_embeddings[start_token:end_token]
+        span_mask = self.attention_mask[start_token:end_token]
+        embedding = self.safe_mean_pooling(span_embeddings, span_mask)
+        return embedding
+
+    def get_register_probs(self, text: str) -> Tuple[np.ndarray, torch.Tensor]:
+        """Get register probabilities and embedding for text."""
+        if self.config.use_hidden_states:
+            # Use cached embeddings method
+            if text in self._prediction_cache:
+                return self._prediction_cache[text]
+
+            inputs = self.tokenizer(
+                text,
+                truncation=True,
+                max_length=self.config.max_length,
+                return_tensors="pt",
+                add_special_tokens=True,
+            ).to("cuda")
+
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                last_hidden_state = outputs.hidden_states[-1][0]
+                attention_mask = inputs["attention_mask"][0]
+
+                embedding = self.safe_mean_pooling(last_hidden_state, attention_mask)
+                probs = self.predict_from_embeddings(embedding)
+
+            self._prediction_cache[text] = (probs, embedding)
+            return probs, embedding
+        else:
+            # Use full model prediction (original method)
+            if text in self._prediction_cache:
+                return self._prediction_cache[text]
+
+            inputs = self.tokenizer(
+                text,
+                truncation=True,
+                max_length=self.config.max_length,
+                return_tensors="pt",
+                add_special_tokens=True,
+            ).to("cuda")
+
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
+                last_hidden_state = outputs.hidden_states[-1]
+
+            attention_mask = inputs["attention_mask"].unsqueeze(-1)
+            mean_embedding = (last_hidden_state * attention_mask).sum(
+                dim=1
+            ) / attention_mask.sum(dim=1)
+
+            self._prediction_cache[text] = (probs, mean_embedding)
+            return probs, mean_embedding
 
     def get_register_probs_batch(
         self, texts: List[str]
@@ -76,18 +170,34 @@ class MultiScaleSegmenter:
             return_tensors="pt",
             padding=True,
             add_special_tokens=True,
-        )
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+        ).to("cuda")
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            batch_probs = torch.sigmoid(outputs.logits).cpu().numpy()
-            last_hidden_state = outputs.hidden_states[-1]
 
-        attention_mask = inputs["attention_mask"].unsqueeze(-1)
-        batch_embeddings = (last_hidden_state * attention_mask).sum(
-            dim=1
-        ) / attention_mask.sum(dim=1)
+            if self.config.use_hidden_states:
+                # Use hidden states method
+                last_hidden_state = outputs.hidden_states[-1]
+                attention_mask = inputs["attention_mask"]
+                batch_embeddings = []
+                batch_probs = []
+
+                for i in range(last_hidden_state.size(0)):
+                    embedding = self.safe_mean_pooling(
+                        last_hidden_state[i], attention_mask[i]
+                    )
+                    probs = self.predict_from_embeddings(embedding)
+                    batch_embeddings.append(embedding)
+                    batch_probs.append(probs)
+
+                batch_probs = np.array(batch_probs)
+            else:
+                # Use full model method (original)
+                batch_probs = torch.sigmoid(outputs.logits).cpu().numpy()
+                attention_mask = inputs["attention_mask"].unsqueeze(-1)
+                batch_embeddings = (outputs.hidden_states[-1] * attention_mask).sum(
+                    dim=1
+                ) / attention_mask.sum(dim=1)
 
         # Cache the results and prepare final output
         all_probs = []
@@ -110,39 +220,8 @@ class MultiScaleSegmenter:
 
         return all_probs, all_embeddings
 
-    def get_register_probs(self, text: str) -> Tuple[np.ndarray, torch.Tensor]:
-        """Get register probabilities and embedding for text by running full model."""
-        # Check cache first
-        if text in self._prediction_cache:
-            return self._prediction_cache[text]
-
-        inputs = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.config.max_length,
-            return_tensors="pt",
-            add_special_tokens=True,
-        )
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
-
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
-            last_hidden_state = outputs.hidden_states[-1]
-
-        attention_mask = inputs["attention_mask"].unsqueeze(
-            -1
-        )  # Expand for broadcasting
-        mean_embedding = (last_hidden_state * attention_mask).sum(
-            dim=1
-        ) / attention_mask.sum(dim=1)
-
-        # Cache the results
-        self._prediction_cache[text] = (probs, mean_embedding)
-        return probs, mean_embedding
-
     def prepare_document(self, text: str):
-        """Store offset mapping for token/character conversion."""
+        """Store offset mapping and optionally prepare hidden states."""
         inputs = self.tokenizer(
             text,
             truncation=True,
@@ -152,6 +231,16 @@ class MultiScaleSegmenter:
             add_special_tokens=True,
         )
         self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
+
+        if self.config.use_hidden_states:
+            # Store token embeddings and attention mask if using hidden states
+            inputs_cuda = {
+                k: v.to("cuda") for k, v in inputs.items() if k != "offset_mapping"
+            }
+            with torch.no_grad():
+                outputs = self.model(**inputs_cuda)
+                self.token_embeddings = outputs.hidden_states[-1][0].detach()
+                self.attention_mask = inputs_cuda["attention_mask"][0]
 
     def get_text_for_span(self, text: str, start_token: int, end_token: int) -> str:
         """Get the original text corresponding to a token span."""
