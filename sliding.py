@@ -45,9 +45,7 @@ class Segmenter:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            probs = sigmoid(
-                outputs.logits
-            )  # Changed from softmax to sigmoid for multilabel
+            probs = sigmoid(outputs.logits)
 
         return probs[0].cpu()
 
@@ -76,11 +74,9 @@ class Segmenter:
         start_context: List[str],
         end_context: List[str],
         uncertain_region: List[str],
-    ) -> Tuple[int, List[np.ndarray]]:
+    ) -> Tuple[int, np.ndarray]:
         """Find the best boundary point in the uncertain region."""
-        best_score = float(
-            "inf"
-        )  # Changed to inf because we're looking for minimum similarity
+        best_score = float("inf")
         best_boundary = 0
         best_probs = None
 
@@ -108,7 +104,7 @@ class Segmenter:
 
     def segment_text(
         self, text: str
-    ) -> Tuple[torch.Tensor, List[Tuple[str, List[np.ndarray]]]]:
+    ) -> Tuple[torch.Tensor, List[Tuple[str, np.ndarray]]]:
         """Segment text into regions of different registers."""
         # Tokenize into sentences
         sentences = self.sent_tokenizer.tokenize(text)
@@ -176,19 +172,18 @@ class Segmenter:
         doc_registers = [
             self.config.labels[i]
             for i, p in enumerate(result["text_probs"])
-            if p >= self.config.threshold
+            if float(p) >= self.config.threshold
         ]
         print(f"Predicted registers: {', '.join(doc_registers)}")
         print("Segments:")
 
         for i, seg in enumerate(result["segments"], 1):
-            registers = [
-                self.config.labels[i]
-                for i, p in enumerate(seg["probs"])
-                if p >= self.config.threshold
-            ]
-            register_str = ", ".join(registers) if registers else "Unknown"
+            registers = []
+            for idx, prob in enumerate(seg["probs"]):
+                if float(prob) >= self.config.threshold:
+                    registers.append(self.config.labels[idx])
 
+            register_str = ", ".join(registers) if registers else "Unknown"
             print(f"\nSegment {i} [{register_str}]:")
             print(seg["text"])
             print("---")
@@ -243,10 +238,7 @@ def main(model_path, dataset_path, output_path):
                 "label": row["label"],
                 "text_probs": [round(x, 8) for x in text_probs.tolist()],
                 "segments": [
-                    {
-                        "text": text,
-                        "probs": [[round(x, 8) for x in probs.tolist()]],
-                    }
+                    {"text": text, "probs": [round(x, 8) for x in probs.tolist()]}
                     for text, probs in segments
                 ],
             }
