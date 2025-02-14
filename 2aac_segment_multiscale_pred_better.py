@@ -24,7 +24,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.0001
+    min_register_diff: float = 0.0003
     scale_weights = {"short": 0, "long": 0, "whole": 1}
     predict_from_embeddings = True
 
