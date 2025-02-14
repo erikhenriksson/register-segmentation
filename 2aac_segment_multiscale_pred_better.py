@@ -182,7 +182,7 @@ class MultiScaleSegmenter:
             return 0.0, [], []
 
         # Clip more aggressively, and ensure we clip BOTH sides properly
-        epsilon = 1e-10
+        epsilon = 1e-5
         probs2 = np.clip(probs2, epsilon, 1.0 - epsilon)  # This ensures max is 0.999999
 
         # Now the logs should be safe since:
