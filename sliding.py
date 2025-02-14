@@ -247,7 +247,10 @@ def main(model_path, dataset_path, output_path):
                 "segments": [
                     {
                         "text": text,
-                        "probs": [[round(float(x), 8) for x in probs]],
+                        "probs": [
+                            [round(x, 8) for x in prob_array.tolist()]
+                            for prob_array in probs
+                        ],
                     }
                     for text, probs in segments
                 ],
