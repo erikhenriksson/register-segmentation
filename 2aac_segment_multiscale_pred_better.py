@@ -191,7 +191,7 @@ class MultiScaleSegmenter:
         bce = -(probs1 * np.log(probs2) + (1 - probs1) * np.log(1 - probs2))
         mean_bce = np.mean(bce)
 
-    return mean_bce, regs1, regs2
+        return mean_bce, regs1, regs2
 
     def evaluate_split(
         self,
