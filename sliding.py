@@ -182,10 +182,12 @@ class Segmenter:
         print("Segments:")
 
         for i, seg in enumerate(result["segments"], 1):
+            print(seg["probs"])
+            exit()
             registers = [
                 self.config.labels[i]
                 for i, p in enumerate(
-                    seg["probs"][0][0]
+                    seg["probs"][0]
                 )  # Changed to handle tuple of arrays
                 if p >= self.config.threshold
             ]
