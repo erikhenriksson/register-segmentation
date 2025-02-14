@@ -242,6 +242,8 @@ def main(model_path, dataset_path, output_path):
             text = row["text"]
             text_probs, segments = segmenter.segment_text(text)
 
+            print(segments)
+
             result = {
                 "id": i,
                 "label": row["label"],
