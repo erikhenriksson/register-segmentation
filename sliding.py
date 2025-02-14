@@ -102,7 +102,7 @@ class Segmenter:
             if score < best_score:
                 best_score = score
                 best_boundary = i
-                best_probs = [(left_probs.numpy(), right_probs.numpy())]
+                best_probs = left_probs.numpy()
 
         return best_boundary, best_probs
 
@@ -159,7 +159,7 @@ class Segmenter:
 
         # Add final segment
         final_text = " ".join(sentences[current_start:])
-        final_probs = [self.predict(final_text).numpy()]
+        final_probs = self.predict(final_text).numpy()
         segments.append((final_text, final_probs))
 
         # Calculate document-level probabilities
@@ -182,13 +182,9 @@ class Segmenter:
         print("Segments:")
 
         for i, seg in enumerate(result["segments"], 1):
-            print(seg["probs"])
-            exit()
             registers = [
                 self.config.labels[i]
-                for i, p in enumerate(
-                    seg["probs"][0]
-                )  # Changed to handle tuple of arrays
+                for i, p in enumerate(seg["probs"])
                 if p >= self.config.threshold
             ]
             register_str = ", ".join(registers) if registers else "Unknown"
@@ -242,8 +238,6 @@ def main(model_path, dataset_path, output_path):
             text = row["text"]
             text_probs, segments = segmenter.segment_text(text)
 
-            print(segments)
-
             result = {
                 "id": i,
                 "label": row["label"],
@@ -251,10 +245,7 @@ def main(model_path, dataset_path, output_path):
                 "segments": [
                     {
                         "text": text,
-                        "probs": [
-                            [round(x, 8) for x in prob_array.tolist()]
-                            for prob_array in probs
-                        ],
+                        "probs": [[round(x, 8) for x in probs.tolist()]],
                     }
                     for text, probs in segments
                 ],
