@@ -181,13 +181,13 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        # Compute cosine distance
-        similarity = np.dot(probs1, probs2) / (
-            np.linalg.norm(probs1) * np.linalg.norm(probs2)
-        )
-        distance = 1 - similarity
-
-        return distance, regs1, regs2
+        # Calculate BCE
+        bce = -(probs1 * np.log(probs2) + (1-probs1) * np.log(1-probs2))
+        
+        # Take mean across all elements
+        mean_bce = np.mean(bce)
+        
+        return mean_bce, regs1, regs2
 
     def evaluate_split(
         self,
