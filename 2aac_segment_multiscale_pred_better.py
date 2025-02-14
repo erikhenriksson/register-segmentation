@@ -181,30 +181,17 @@ class MultiScaleSegmenter:
         if regs1 == regs2:
             return 0.0, [], []
 
-        # First print any problematic values
-        print("Zeros in probs2:", np.where(probs2 == 0))
-        print("Ones in probs2:", np.where(probs2 == 1))
-        print("Min/max probs2:", np.min(probs2), np.max(probs2))
+        # Clip more aggressively, and ensure we clip BOTH sides properly
+        epsilon = 1e-10
+        probs2 = np.clip(probs2, epsilon, 1.0 - epsilon)  # This ensures max is 0.999999
 
-        # Clip more aggressively
-        epsilon = 1e-6  # Even larger epsilon
-        probs2 = np.clip(probs2, epsilon, 1.0 - epsilon)
-
-        # Double check after clipping
-        print("After clipping - min/max probs2:", np.min(probs2), np.max(probs2))
-
-        # Calculate BCE with explicit handling of edge cases
-        log_p2 = np.log(probs2)
-        log_1_p2 = np.log(1 - probs2)
-
-        # Replace any inf values
-        log_p2 = np.nan_to_num(log_p2, neginf=-1e6)
-        log_1_p2 = np.nan_to_num(log_1_p2, neginf=-1e6)
-
-        bce = -(probs1 * log_p2 + (1 - probs1) * log_1_p2)
+        # Now the logs should be safe since:
+        # log(probs2) will be at worst log(epsilon)
+        # log(1-probs2) will be at worst log(epsilon)
+        bce = -(probs1 * np.log(probs2) + (1 - probs1) * np.log(1 - probs2))
         mean_bce = np.mean(bce)
 
-        return mean_bce, regs1, regs2
+    return mean_bce, regs1, regs2
 
     def evaluate_split(
         self,
