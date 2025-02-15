@@ -26,7 +26,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.01
+    min_register_diff: float = 0.001
     scale_weights = {"short": 0, "long": 0, "whole": 1}
     predict_from_embeddings = True
 
@@ -232,8 +232,6 @@ class MultiScaleSegmenter:
             np.linalg.norm(probs1) * np.linalg.norm(probs2)
         )
         distance = 1 - similarity
-
-        distance = np.linalg.norm(probs1 - probs2)
 
         return distance, regs1, regs2
 
