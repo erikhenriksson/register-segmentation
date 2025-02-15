@@ -519,9 +519,10 @@ def main(model_path, dataset_path, output_path):
     """Main function to process documents and generate segments."""
     config = MultiScaleConfig()
     all_data = []
-    for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
+    files = ["dev.tsv", "test.tsv", "train.tsv"]
+    for tsv_file in files:
         df = pd.read_csv(
-            tsv_file,
+            f"{dataset_path}/{tsv_file}",
             sep="\t",
             header=None,
             names=["label", "text"],
