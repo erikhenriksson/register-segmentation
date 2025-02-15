@@ -12,8 +12,10 @@ import numpy as np
 print("Importing nltk")
 from nltk.tokenize import PunktSentenceTokenizer
 
-print("Importing torch and transformers")
+print("Importing torch")
 import torch
+
+print("Importing transformers")
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
@@ -23,7 +25,7 @@ LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
-    classification_threshold: float = 0.50
+    classification_threshold: float = 0.70
     min_register_diff: float = 0.001
     scale_weights = {"short": 0, "long": 0, "whole": 1}
     predict_from_embeddings = True
@@ -231,8 +233,7 @@ class MultiScaleSegmenter:
         )
         distance = 1 - similarity
 
-        # Normalize by number of active registers as in original
-        # normalized_distance = distance / (len(regs1) + len(regs2) - 1)
+        distance = np.linalg.norm(probs1 - probs2)
 
         return distance, regs1, regs2
 
