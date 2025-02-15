@@ -402,17 +402,32 @@ class MultiScaleSegmenter:
     def segment_text(
         self, text: str
     ) -> List[Tuple[str, List[np.ndarray], torch.Tensor]]:
-        """Main entry point for text segmentation."""
+        """Main entry point for text segmentation with improved error handling."""
         sent_detector = PunktSentenceTokenizer()
         sent_char_spans = list(sent_detector.span_tokenize(text))
         sentences = [text[s:e] for s, e in sent_char_spans]
 
+        if not self.offset_mapping:
+            # Initialize tokenizer and get offset mapping if not already done
+            inputs = self.tokenizer(
+                text,
+                truncation=True,
+                max_length=self.config.max_length,
+                return_tensors="pt",
+                add_special_tokens=True,
+                return_offsets_mapping=True,
+            )
+            self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
+
         offset_mapping = np.array(self.offset_mapping)
+        max_token_idx = len(offset_mapping) - 1
 
         sent_spans = []
         for char_start, char_end in sent_char_spans:
             token_start = None
             token_end = None
+
+            # Find token boundaries
             for i, (tok_start, tok_end) in enumerate(offset_mapping):
                 if tok_start == tok_end == 0:
                     continue
@@ -422,8 +437,20 @@ class MultiScaleSegmenter:
                     token_end = i + 1
                 else:
                     break
+
+            # Ensure valid token spans
             if token_start is None or token_end is None:
-                token_start, token_end = 0, 0
+                token_start, token_end = 0, min(
+                    50, max_token_idx
+                )  # Use reasonable default
+            else:
+                # Ensure spans are within bounds
+                token_start = min(token_start, max_token_idx)
+                token_end = min(token_end, max_token_idx + 1)
+
+            if token_start >= token_end:
+                token_end = min(token_start + 1, max_token_idx + 1)
+
             sent_spans.append((int(token_start), int(token_end)))
 
         return self.segment_recursive(text, sentences, sent_spans)
