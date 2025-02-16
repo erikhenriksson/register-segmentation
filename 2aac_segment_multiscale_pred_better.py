@@ -548,9 +548,10 @@ def main(model_path, dataset_path, output_path):
                 na_values="",
                 keep_default_na=False,
             )
+            all_data.append(df)
         except:
             pass
-        all_data.append(df)
+
     combined_df = pd.concat(all_data, ignore_index=True)
 
     last_id = get_last_processed_id(output_path)
