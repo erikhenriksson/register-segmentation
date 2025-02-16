@@ -198,7 +198,7 @@ class MultiScaleSegmenter:
             outputs = self.model(**inputs)
             probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
             last_hidden_state = outputs.hidden_states[-1]
-            if not self.token_embeddings:
+            if self.token_embeddings is None:
                 self.token_embeddings = outputs.hidden_states[-1][0].detach()
                 self.attention_mask = inputs["attention_mask"][0]
                 self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
