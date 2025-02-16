@@ -332,7 +332,7 @@ class MultiScaleSegmenter:
             text, sentences, sent_spans, depth, side
         )
 
-        if score < self.config.min_register_diff or split_idx is None:
+        if score < self.config.min_register_diff or split_idx is None or depth >= 3:
             return [(span_text, new_chain, current_embedding)]
 
         # For splits, only pass the parent probabilities without current level
