@@ -24,7 +24,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.04
+    min_register_diff: float = 0.035
     scale_weights = {"short": 1, "long": 1, "whole": 1}
 
 
@@ -403,6 +403,26 @@ class MultiScaleSegmenter:
         print(f"Predicted registers: {', '.join(doc_registers)}")
         print("Segments:")
 
+        # Define container registers and their relationships
+        CONTAINER_REGISTERS = {
+            "ID": [
+                "OP",
+                "NA",
+                "HI",
+                "IP",
+                "SP",
+            ],  # Forum discussions can contain all types
+            "NA": [
+                "OP",
+                "SP",
+                "IP",
+            ],  # Narratives often contain opinions, quotes, and promotional content
+            "HI": [
+                "IP",
+                "OP",
+            ],  # How-to content can contain promotional and opinion elements
+        }
+
         for i, seg in enumerate(result["segments"], 1):
             # Create hierarchical register string
             register_chain = []
@@ -418,7 +438,38 @@ class MultiScaleSegmenter:
             # Join with '>' to show hierarchy
             register_str = " > ".join(register_chain)
 
+            # New container-aware register representation
+            simplified_registers = set()  # Using set to avoid duplicates
+
+            if register_chain:  # Check if there are any registers
+                # Add all registers from the last probability level
+                final_registers = register_chain[-1].split()
+                simplified_registers.update(final_registers)
+
+                # Check earlier levels for container registers
+                for level_registers in register_chain[:-1]:
+                    current_level_registers = level_registers.split()
+                    # For each register in the current level
+                    for reg in current_level_registers:
+                        if reg in CONTAINER_REGISTERS:
+                            # Check if this container is relevant to any final register
+                            for final_reg in final_registers:
+                                if final_reg in CONTAINER_REGISTERS[reg]:
+                                    simplified_registers.add(reg)
+                                    break
+                        # If it's not a container but appears with a container
+                        # we might want to preserve it in certain cases
+                        elif any(
+                            container in current_level_registers
+                            for container in CONTAINER_REGISTERS
+                        ):
+                            simplified_registers.add(reg)
+
+            # Convert to sorted list for consistent output
+            simplified_str = " ".join(sorted(simplified_registers))
+
             print(f"\nSegment {i} [{register_str}]:")
+            print(f"Simplified: [{simplified_str}]")
             print(seg["text"])
             print("---")
 
