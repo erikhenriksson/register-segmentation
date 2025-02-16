@@ -203,25 +203,26 @@ class MultiScaleSegmenter:
         """Get the original text corresponding to a token span with bounds checking."""
         if not self.offset_mapping:
             return text
-            
+
         # Ensure indices are within bounds
         max_idx = len(self.offset_mapping) - 1
         start_token = max(0, min(start_token, max_idx))
         end_token = max(start_token + 1, min(end_token, max_idx + 1))
-        
+
         try:
             char_start = self.offset_mapping[start_token][0]
             char_end = self.offset_mapping[end_token - 1][1]
             return text[char_start:char_end]
         except (IndexError, TypeError):
             # Fallback to using the original text if we encounter any issues
-            print(f"Warning: Failed to get precise span for tokens {start_token}:{end_token}. Using approximate spans.")
+            print(
+                f"Warning: Failed to get precise span for tokens {start_token}:{end_token}. Using approximate spans."
+            )
             # Approximate the character positions
             char_length = len(text)
             approx_start = int((start_token / max_idx) * char_length)
             approx_end = int((end_token / max_idx) * char_length)
             return text[approx_start:approx_end]
-
 
     def compute_register_distinctness(
         self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
@@ -538,14 +539,17 @@ def main(model_path, dataset_path, output_path):
     all_data = []
     files = ["dev.tsv", "test.tsv", "train.tsv"]
     for tsv_file in files:
-        df = pd.read_csv(
-            f"{dataset_path}/{tsv_file}",
-            sep="\t",
-            header=None,
-            names=["label", "text"],
-            na_values="",
-            keep_default_na=False,
-        )
+        try:
+            df = pd.read_csv(
+                f"{dataset_path}/{tsv_file}",
+                sep="\t",
+                header=None,
+                names=["label", "text"],
+                na_values="",
+                keep_default_na=False,
+            )
+        except:
+            pass
         all_data.append(df)
     combined_df = pd.concat(all_data, ignore_index=True)
 
