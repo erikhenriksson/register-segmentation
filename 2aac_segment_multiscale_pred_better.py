@@ -266,6 +266,8 @@ class MultiScaleSegmenter:
         if len(left_spans) < window_size or len(right_spans) < window_size:
             return None, [], []
 
+        print("here")
+
         left_window = (left_spans[-window_size][0], left_spans[-1][1])
         right_window = (right_spans[0][0], right_spans[window_size - 1][1])
 
@@ -306,7 +308,6 @@ class MultiScaleSegmenter:
         best_split = None
         best_regs_left = []
         best_regs_right = []
-        print(len(sentences))
 
         for i in range(1, len(sentences)):
             scores = []
@@ -315,8 +316,6 @@ class MultiScaleSegmenter:
 
             left_length = left_spans[-1][-1] - left_spans[0][0]
             right_length = right_spans[-1][-1] - right_spans[0][0]
-
-            print(left_length, right_length)
 
             if (
                 left_length < self.config.min_tokens
