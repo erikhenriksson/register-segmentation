@@ -9,8 +9,8 @@ print("Importing pandas and numpy")
 import pandas as pd
 import numpy as np
 
-print("Importing nltk")
-from nltk.tokenize import PunktSentenceTokenizer
+print("Importing spacy")
+import spacy
 
 print("Importing torch and transformers")
 import torch
@@ -18,7 +18,6 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
-import spacy
 
 nlp = spacy.load("en_core_web_sm")
 
