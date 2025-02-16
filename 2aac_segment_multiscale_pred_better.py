@@ -391,98 +391,96 @@ class MultiScaleSegmenter:
         return text
 
     def print_result(self, result: Dict):
-    """Print segmentation results with hierarchical register information."""
-    print(f"\nText [{result['id']}]")
-    print(f"True label: {result['label']}")
+        """Print segmentation results with hierarchical register information."""
+        print(f"\nText [{result['id']}]")
+        print(f"True label: {result['label']}")
 
-    # Get document-level registers
-    doc_registers = [
-        LABELS[i]
-        for i, p in enumerate(result["text_probs"])
-        if p >= self.config.classification_threshold
-    ]
-    print(f"Predicted registers: {', '.join(doc_registers)}")
-    print("Segments:")
+        # Get document-level registers
+        doc_registers = [
+            LABELS[i]
+            for i, p in enumerate(result["text_probs"])
+            if p >= self.config.classification_threshold
+        ]
+        print(f"Predicted registers: {', '.join(doc_registers)}")
+        print("Segments:")
 
-    # Define container registers and their relationships
-    CONTAINER_HIERARCHY = [
-        ["ID"],
-        ["NA OP"],
-        ["NA"],
-        ["HI"]
-    ]
-    
-    CONTAINER_REGISTERS = {
-        "ID": ["OP", "NA", "HI", "IP", "SP"],
-        "NA OP": ["IP", "SP", "HI"],
-        "NA": ["OP", "SP", "IP"],
-        "HI": ["IP", "OP"]
-    }
+        # Define container registers and their relationships
+        CONTAINER_HIERARCHY = [["ID"], ["NA OP"], ["NA"], ["HI"]]
 
-    # Define terminating registers that override subsequent labels
-    TERMINATING_REGISTERS = {"IP"}
+        CONTAINER_REGISTERS = {
+            "ID": ["OP", "NA", "HI", "IP", "SP"],
+            "NA OP": ["IP", "SP", "HI"],
+            "NA": ["OP", "SP", "IP"],
+            "HI": ["IP", "OP"],
+        }
 
-    for i, seg in enumerate(result["segments"], 1):
-        register_chain = []
-        for prob_level in seg["probs"]:
-            level_registers = [
-                LABELS[i]
-                for i, p in enumerate(prob_level)
-                if p >= self.config.classification_threshold
-            ]
-            if level_registers:
-                register_chain.append(" ".join(level_registers))
+        # Define terminating registers that override subsequent labels
+        TERMINATING_REGISTERS = {"IP"}
 
-        register_str = " > ".join(register_chain)
-        simplified_registers = set()
+        for i, seg in enumerate(result["segments"], 1):
+            register_chain = []
+            for prob_level in seg["probs"]:
+                level_registers = [
+                    LABELS[i]
+                    for i, p in enumerate(prob_level)
+                    if p >= self.config.classification_threshold
+                ]
+                if level_registers:
+                    register_chain.append(" ".join(level_registers))
 
-        if register_chain:
-            # Check for terminating registers in the chain
-            terminating_index = -1
-            for idx, level in enumerate(register_chain):
-                level_registers = set(level.split())
-                if any(reg in TERMINATING_REGISTERS for reg in level_registers):
-                    terminating_index = idx
-                    break
+            register_str = " > ".join(register_chain)
+            simplified_registers = set()
 
-            if terminating_index != -1:
-                # If we found a terminating register, only use that level
-                term_level_registers = set(register_chain[terminating_index].split())
-                # Keep only the terminating registers
-                simplified_registers.update(
-                    reg for reg in term_level_registers 
-                    if reg in TERMINATING_REGISTERS
-                )
-            else:
-                # Normal processing if no terminating register found
-                final_registers = register_chain[-1].split()
-                simplified_registers.update(final_registers)
-                
-                # Find the highest-priority container in the chain
-                dominant_container = None
-                for container_group in CONTAINER_HIERARCHY:
-                    for level in register_chain[:-1]:
-                        level_registers = set(level.split())
-                        for container in container_group:
-                            container_registers = set(container.split())
-                            if container_registers.issubset(level_registers):
-                                dominant_container = container
-                                break
-                    if dominant_container:
+            if register_chain:
+                # Check for terminating registers in the chain
+                terminating_index = -1
+                for idx, level in enumerate(register_chain):
+                    level_registers = set(level.split())
+                    if any(reg in TERMINATING_REGISTERS for reg in level_registers):
+                        terminating_index = idx
                         break
-                
-                if dominant_container:
-                    for final_reg in final_registers:
-                        if final_reg in CONTAINER_REGISTERS[dominant_container]:
-                            simplified_registers.update(dominant_container.split())
+
+                if terminating_index != -1:
+                    # If we found a terminating register, only use that level
+                    term_level_registers = set(
+                        register_chain[terminating_index].split()
+                    )
+                    # Keep only the terminating registers
+                    simplified_registers.update(
+                        reg
+                        for reg in term_level_registers
+                        if reg in TERMINATING_REGISTERS
+                    )
+                else:
+                    # Normal processing if no terminating register found
+                    final_registers = register_chain[-1].split()
+                    simplified_registers.update(final_registers)
+
+                    # Find the highest-priority container in the chain
+                    dominant_container = None
+                    for container_group in CONTAINER_HIERARCHY:
+                        for level in register_chain[:-1]:
+                            level_registers = set(level.split())
+                            for container in container_group:
+                                container_registers = set(container.split())
+                                if container_registers.issubset(level_registers):
+                                    dominant_container = container
+                                    break
+                        if dominant_container:
                             break
 
-        simplified_str = " ".join(sorted(simplified_registers))
+                    if dominant_container:
+                        for final_reg in final_registers:
+                            if final_reg in CONTAINER_REGISTERS[dominant_container]:
+                                simplified_registers.update(dominant_container.split())
+                                break
 
-        print(f"\nSegment {i} [{register_str}]:")
-        print(f"Simplified: [{simplified_str}]")
-        print(seg["text"])
-        print("---")
+            simplified_str = " ".join(sorted(simplified_registers))
+
+            print(f"\nSegment {i} [{register_str}]:")
+            print(f"Simplified: [{simplified_str}]")
+            print(seg["text"])
+            print("---")
 
 
 def get_last_processed_id(output_path):
