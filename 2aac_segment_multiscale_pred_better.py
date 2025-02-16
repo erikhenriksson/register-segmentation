@@ -37,7 +37,7 @@ class MultiScaleConfig:
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.04
-    scale_weights = {"short": 1, "long": 1, "whole": 1}
+    scale_weights = {"short": 0, "long": 1.5, "whole": 1.5}
 
 
 class MultiScaleSegmenter:
@@ -288,7 +288,7 @@ class MultiScaleSegmenter:
 
             # Long window (4+4)
             score_long, long_regs_left, long_regs_right = self.evaluate_split(
-                text, left_spans, right_spans, window_size=5
+                text, left_spans, right_spans, window_size=6
             )
             if (
                 score_long
