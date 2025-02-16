@@ -178,7 +178,7 @@ class MultiScaleSegmenter:
             logits = self.model.classifier(pooled_output)  # Get class logits
 
             probabilities = torch.sigmoid(logits)  # Get probabilities
-            return probabilities.squeeze(0)  # Remove batch dimension
+            return probabilities.squeeze(0), mean_pooled  # Remove batch dimension
 
         # Check cache first
         if text in self._prediction_cache:
