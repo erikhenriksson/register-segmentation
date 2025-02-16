@@ -266,8 +266,6 @@ class MultiScaleSegmenter:
         if len(left_spans) < window_size or len(right_spans) < window_size:
             return None, [], []
 
-        print("here")
-
         left_window = (left_spans[-window_size][0], left_spans[-1][1])
         right_window = (right_spans[0][0], right_spans[window_size - 1][1])
 
@@ -284,6 +282,10 @@ class MultiScaleSegmenter:
         parent_probs, _ = self.get_register_probs(
             parent_text, left_window[0], right_window[1]
         )
+
+        print(left_probs)
+        print(right_probs)
+        print(parent_probs)
 
         """
         # Batch the three predictions together
