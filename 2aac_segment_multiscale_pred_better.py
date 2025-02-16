@@ -28,7 +28,7 @@ class MultiScaleConfig:
     classification_threshold: float = 0.70
     min_register_diff: float = 0.0001
     scale_weights = {"short": 0, "long": 0, "whole": 1}
-    use_embeddings = True
+    use_embeddings = False
 
 
 class MultiScaleSegmenter:
