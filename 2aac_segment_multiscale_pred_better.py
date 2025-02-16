@@ -170,7 +170,7 @@ class MultiScaleSegmenter:
                 start_token : end_token + 1
             ]  # +1 to include end_idx
             mean_pooled = span_embeddings.mean(dim=0)
-            pooled_batch = mean_pooled.unsqueeze(0)  # Add batch dimension
+            pooled_batch = mean_pooled.unsqueeze(0).to("cuda")  # Add batch dimension
 
             # Apply the full classification pipeline
             pooled_output = self.model.head(pooled_batch)  # Project features
@@ -178,7 +178,7 @@ class MultiScaleSegmenter:
             logits = self.model.classifier(pooled_output)  # Get class logits
 
             probabilities = torch.sigmoid(logits)  # Get probabilities
-            return probabilities.squeeze(0), mean_pooled  # Remove batch dimension
+            return probabilities.squeeze(0).cpu(), mean_pooled  # Remove batch dimension
 
         # Check cache first
         if text in self._prediction_cache:
