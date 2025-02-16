@@ -37,7 +37,7 @@ class MultiScaleConfig:
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
     min_register_diff: float = 0.04
-    scale_weights = {"short": 0.5, "long": 1.5, "whole": 1}
+    scale_weights = {"short": 0, "long": 1.5, "whole": 1.5}
 
 
 class MultiScaleSegmenter:
