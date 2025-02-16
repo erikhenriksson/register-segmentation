@@ -24,7 +24,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.035
+    min_register_diff: float = 0.04
     scale_weights = {"short": 1, "long": 1, "whole": 1}
 
 
@@ -188,7 +188,8 @@ class MultiScaleSegmenter:
         distance = 1 - similarity
 
         # Normalize by number of active registers as in original
-        normalized_distance = distance / (len(regs1) + len(regs2) - 1)
+        # normalized_distance = distance / (len(regs1) + len(regs2) - 1)
+        normalized_distance = distance
 
         return normalized_distance, regs1, regs2
 
@@ -404,23 +405,12 @@ class MultiScaleSegmenter:
         print("Segments:")
 
         # Define container registers and their relationships
+        # The order in CONTAINER_HIERARCHY determines which container takes precedence
+        CONTAINER_HIERARCHY = ["ID", "NA", "HI"]  # ID overrides NA, which overrides HI
         CONTAINER_REGISTERS = {
-            "ID": [
-                "OP",
-                "NA",
-                "HI",
-                "IP",
-                "SP",
-            ],  # Forum discussions can contain all types
-            "NA": [
-                "OP",
-                "SP",
-                "IP",
-            ],  # Narratives often contain opinions, quotes, and promotional content
-            "HI": [
-                "IP",
-                "OP",
-            ],  # How-to content can contain promotional and opinion elements
+            "ID": ["OP", "NA", "HI", "IP", "SP"],
+            "NA": ["OP", "SP", "IP"],
+            "HI": ["IP", "OP"],
         }
 
         for i, seg in enumerate(result["segments"], 1):
@@ -432,7 +422,7 @@ class MultiScaleSegmenter:
                     for i, p in enumerate(prob_level)
                     if p >= self.config.classification_threshold
                 ]
-                if level_registers:  # Only add non-empty register lists
+                if level_registers:
                     register_chain.append(" ".join(level_registers))
 
             # Join with '>' to show hierarchy
@@ -441,29 +431,29 @@ class MultiScaleSegmenter:
             # New container-aware register representation
             simplified_registers = set()  # Using set to avoid duplicates
 
-            if register_chain:  # Check if there are any registers
+            if register_chain:
                 # Add all registers from the last probability level
                 final_registers = register_chain[-1].split()
                 simplified_registers.update(final_registers)
 
-                # Check earlier levels for container registers
-                for level_registers in register_chain[:-1]:
-                    current_level_registers = level_registers.split()
-                    # For each register in the current level
-                    for reg in current_level_registers:
-                        if reg in CONTAINER_REGISTERS:
-                            # Check if this container is relevant to any final register
-                            for final_reg in final_registers:
-                                if final_reg in CONTAINER_REGISTERS[reg]:
-                                    simplified_registers.add(reg)
-                                    break
-                        # If it's not a container but appears with a container
-                        # we might want to preserve it in certain cases
-                        elif any(
-                            container in current_level_registers
-                            for container in CONTAINER_REGISTERS
-                        ):
-                            simplified_registers.add(reg)
+                # Find the highest-priority container in the chain
+                dominant_container = None
+                for container in CONTAINER_HIERARCHY:
+                    for level in register_chain[
+                        :-1
+                    ]:  # Check all levels except the last
+                        if container in level.split():
+                            dominant_container = container
+                            break
+                    if dominant_container:
+                        break
+
+                # Only add the dominant container if it's relevant to the final registers
+                if dominant_container:
+                    for final_reg in final_registers:
+                        if final_reg in CONTAINER_REGISTERS[dominant_container]:
+                            simplified_registers.add(dominant_container)
+                            break
 
             # Convert to sorted list for consistent output
             simplified_str = " ".join(sorted(simplified_registers))
