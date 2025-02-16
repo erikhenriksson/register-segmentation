@@ -419,7 +419,7 @@ class MultiScaleSegmenter:
         print("Segments:")
 
         for i, seg in enumerate(result["segments"], 1):
-            # Create hierarchical register string
+            # Create hierarchical register string (original logic)
             register_chain = []
             for prob_level in seg["probs"]:
                 level_registers = [
@@ -433,24 +433,45 @@ class MultiScaleSegmenter:
             # Join with '>' to show hierarchy
             register_str = " > ".join(register_chain)
 
-            # New simplified register representation
-            simplified_registers = set()  # Using set to avoid duplicates
+            # New logic for simplified printing
+            all_registers = []
+            for idx, prob_level in enumerate(seg["probs"]):
+                level_registers = [
+                    LABELS[i]
+                    for i, p in enumerate(prob_level)
+                    if p >= self.config.classification_threshold
+                ]
+                # Check for IP or LY in non-first level
+                if idx > 0 and ("IP" in level_registers or "LY" in level_registers):
+                    simplified_str = next(
+                        reg for reg in level_registers if reg in ["IP", "LY"]
+                    )
+                    break
+                all_registers.extend(level_registers)
+            else:  # This runs if no IP/LY found in non-first levels
+                # Get unique registers, prioritizing ID/SP/IN and last level
+                special_registers = set()
+                last_level_registers = set(
+                    [
+                        LABELS[i]
+                        for i, p in enumerate(seg["probs"][-1])
+                        if p >= self.config.classification_threshold
+                    ]
+                )
 
-            # Add ID if it appears in any level except the last
-            for registers in register_chain[:-1]:
-                if "ID" in registers.split():
-                    simplified_registers.add("ID")
+                # Collect ID/SP/IN from all levels
+                for regs in register_chain:
+                    for reg in regs.split():
+                        if reg in ["ID", "SP", "IN"]:
+                            special_registers.add(reg)
 
-            # Add all registers from the last probability level
-            if register_chain:  # Check if there are any registers
-                simplified_registers.update(register_chain[-1].split())
-
-            simplified_str = " ".join(
-                sorted(simplified_registers)
-            )  # Sort for consistent output
+                # Combine special registers with last level, removing duplicates
+                simplified_str = " ".join(
+                    sorted(special_registers | last_level_registers)
+                )
 
             print(f"\nSegment {i} [{register_str}]:")
-            print(f"Simplified: [{simplified_str}]")
+            print(f"Simplified: {simplified_str}")
             print(seg["text"])
             print("---")
 
