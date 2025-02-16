@@ -159,7 +159,7 @@ class MultiScaleSegmenter:
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Get register probabilities and embedding for text"""
 
-        if self.use_embeddings and self.token_embeddings is not None:
+        if self.config.use_embeddings and self.token_embeddings is not None:
             """
             span_embedding = self.get_span_embedding(start_token, end_token)
             probs = self.predict_from_embeddings(span_embedding)
