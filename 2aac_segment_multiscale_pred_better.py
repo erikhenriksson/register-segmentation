@@ -306,6 +306,7 @@ class MultiScaleSegmenter:
         best_split = None
         best_regs_left = []
         best_regs_right = []
+        print(len(sentences))
 
         for i in range(1, len(sentences)):
             scores = []
@@ -314,6 +315,8 @@ class MultiScaleSegmenter:
 
             left_length = left_spans[-1][-1] - left_spans[0][0]
             right_length = right_spans[-1][-1] - right_spans[0][0]
+
+            print(left_length, right_length)
 
             if (
                 left_length < self.config.min_tokens
