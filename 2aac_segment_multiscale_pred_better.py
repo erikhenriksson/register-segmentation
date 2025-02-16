@@ -442,16 +442,20 @@ def main(model_path, dataset_path, output_path):
     """Main function to process documents and generate segments."""
     config = MultiScaleConfig()
     all_data = []
-    for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
-        df = pd.read_csv(
-            tsv_file,
-            sep="\t",
-            header=None,
-            names=["label", "text"],
-            na_values="",
-            keep_default_na=False,
-        )
-        all_data.append(df)
+    files = ["dev.tsv", "test.tsv", "train.tsv"]
+    for tsv_file in files:
+        try:
+            df = pd.read_csv(
+                f"{dataset_path}/{tsv_file}",
+                sep="\t",
+                header=None,
+                names=["label", "text"],
+                na_values="",
+                keep_default_na=False,
+            )
+            all_data.append(df)
+        except:
+            pass
     combined_df = pd.concat(all_data, ignore_index=True)
 
     last_id = get_last_processed_id(output_path)
