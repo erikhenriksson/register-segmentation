@@ -251,6 +251,8 @@ class MultiScaleSegmenter:
         )
         distance = 1 - similarity
 
+        print(distance)
+
         return distance, regs1, regs2
 
     def evaluate_split(
