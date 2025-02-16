@@ -18,6 +18,19 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
 
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+
+
+def get_sentences(text):
+    doc = nlp(text)
+    # Get character spans
+    sent_char_spans = [(sent.start_char, sent.end_char) for sent in doc.sents]
+    # Get sentence texts
+    sentences = [text[s:e] for s, e in sent_char_spans]
+    return sent_char_spans, sentences
+
 
 @dataclass
 class MultiScaleConfig:
@@ -349,10 +362,12 @@ class MultiScaleSegmenter:
         """Main entry point for text segmentation."""
         self._prediction_cache = {}
         text = self.truncate_text(text)
+        """
         sent_detector = PunktSentenceTokenizer()
         sent_char_spans = list(sent_detector.span_tokenize(text))
         sentences = [text[s:e] for s, e in sent_char_spans]
-
+        """
+        sent_char_spans, sentences = get_sentences(text)
         self.prepare_document(text)
         offset_mapping = np.array(self.offset_mapping)
 
