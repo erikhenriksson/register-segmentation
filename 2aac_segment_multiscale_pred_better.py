@@ -272,7 +272,10 @@ class MultiScaleSegmenter:
         left_text = self.get_text_for_span(text, left_window[0], left_window[1])
         right_text = self.get_text_for_span(text, right_window[0], right_window[1])
         parent_text = self.get_text_for_span(text, left_window[0], right_window[1])
-
+        print(left_text)
+        print(right_text)
+        print(parent_text)
+        print(".--------.")
         left_probs, _ = self.get_register_probs(
             left_text, left_window[0], left_window[1]
         )
