@@ -36,7 +36,7 @@ class MultiScaleConfig:
     max_length: int = 8192
     min_tokens: int = 0  # Minimum token count per segment
     classification_threshold: float = 0.70
-    min_register_diff: float = 0.02
+    min_register_diff: float = 0.035
     scale_weights = {"short": 1, "long": 1, "whole": 1}
 
 
@@ -418,20 +418,8 @@ class MultiScaleSegmenter:
         print(f"Predicted registers: {', '.join(doc_registers)}")
         print("Segments:")
 
-        # Define container registers and their relationships
-        CONTAINER_HIERARCHY = [["ID"], ["NA OP"], ["NA"], ["HI"]]
-
-        CONTAINER_REGISTERS = {
-            "ID": ["OP", "NA", "HI", "IP", "SP"],
-            "NA OP": ["IP", "SP", "HI"],
-            "NA": ["OP", "SP", "IP"],
-            "HI": ["IP", "OP"],
-        }
-
-        # Define terminating registers that override subsequent labels
-        TERMINATING_REGISTERS = {"IP"}
-
         for i, seg in enumerate(result["segments"], 1):
+            # Create hierarchical register string
             register_chain = []
             for prob_level in seg["probs"]:
                 level_registers = [
@@ -439,57 +427,27 @@ class MultiScaleSegmenter:
                     for i, p in enumerate(prob_level)
                     if p >= self.config.classification_threshold
                 ]
-                if level_registers:
+                if level_registers:  # Only add non-empty register lists
                     register_chain.append(" ".join(level_registers))
 
+            # Join with '>' to show hierarchy
             register_str = " > ".join(register_chain)
-            simplified_registers = set()
 
-            if register_chain:
-                # Check for terminating registers in the chain
-                terminating_index = -1
-                for idx, level in enumerate(register_chain):
-                    level_registers = set(level.split())
-                    if any(reg in TERMINATING_REGISTERS for reg in level_registers):
-                        terminating_index = idx
-                        break
+            # New simplified register representation
+            simplified_registers = set()  # Using set to avoid duplicates
 
-                if terminating_index != -1:
-                    # If we found a terminating register, only use that level
-                    term_level_registers = set(
-                        register_chain[terminating_index].split()
-                    )
-                    # Keep only the terminating registers
-                    simplified_registers.update(
-                        reg
-                        for reg in term_level_registers
-                        if reg in TERMINATING_REGISTERS
-                    )
-                else:
-                    # Normal processing if no terminating register found
-                    final_registers = register_chain[-1].split()
-                    simplified_registers.update(final_registers)
+            # Add ID if it appears in any level except the last
+            for registers in register_chain[:-1]:
+                if "ID" in registers.split():
+                    simplified_registers.add("ID")
 
-                    # Find the highest-priority container in the chain
-                    dominant_container = None
-                    for container_group in CONTAINER_HIERARCHY:
-                        for level in register_chain[:-1]:
-                            level_registers = set(level.split())
-                            for container in container_group:
-                                container_registers = set(container.split())
-                                if container_registers.issubset(level_registers):
-                                    dominant_container = container
-                                    break
-                        if dominant_container:
-                            break
+            # Add all registers from the last probability level
+            if register_chain:  # Check if there are any registers
+                simplified_registers.update(register_chain[-1].split())
 
-                    if dominant_container:
-                        for final_reg in final_registers:
-                            if final_reg in CONTAINER_REGISTERS[dominant_container]:
-                                simplified_registers.update(dominant_container.split())
-                                break
-
-            simplified_str = " ".join(sorted(simplified_registers))
+            simplified_str = " ".join(
+                sorted(simplified_registers)
+            )  # Sort for consistent output
 
             print(f"\nSegment {i} [{register_str}]:")
             print(f"Simplified: [{simplified_str}]")
