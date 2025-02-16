@@ -28,7 +28,7 @@ class MultiScaleConfig:
     classification_threshold: float = 0.70
     min_register_diff: float = 0.0001
     scale_weights = {"short": 0, "long": 0, "whole": 1}
-    predict_from_embeddings = True
+    use_embeddings = True
 
 
 class MultiScaleSegmenter:
@@ -159,11 +159,26 @@ class MultiScaleSegmenter:
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Get register probabilities and embedding for text"""
 
-        if self.predict_from_embeddings and self.token_embeddings is not None:
+        if self.use_embeddings and self.token_embeddings is not None:
+            """
             span_embedding = self.get_span_embedding(start_token, end_token)
             probs = self.predict_from_embeddings(span_embedding)
 
             return probs, span_embedding
+            """
+            span_embeddings = self.token_embeddings[
+                start_token : end_token + 1
+            ]  # +1 to include end_idx
+            mean_pooled = span_embeddings.mean(dim=0)
+            pooled_batch = mean_pooled.unsqueeze(0)  # Add batch dimension
+
+            # Apply the full classification pipeline
+            pooled_output = self.model.head(pooled_batch)  # Project features
+            pooled_output = self.model.drop(pooled_output)  # Apply dropout
+            logits = self.model.classifier(pooled_output)  # Get class logits
+
+            probabilities = torch.sigmoid(logits)  # Get probabilities
+            return probabilities.squeeze(0)  # Remove batch dimension
 
         # Check cache first
         if text in self._prediction_cache:
