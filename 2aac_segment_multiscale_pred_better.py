@@ -100,7 +100,7 @@ class MultiScaleSegmenter:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            batch_probs = torch.sigmoid(outputs.logits).cpu().numpy()
+            batch_probs = torch.sigmoid(outputs.logits).float().cpu().numpy()
             last_hidden_state = outputs.hidden_states[-1]
 
         # Use the pooling function for the batch
@@ -147,7 +147,7 @@ class MultiScaleSegmenter:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
+            probs = torch.sigmoid(outputs.logits).float().cpu().numpy()[0]
             last_hidden_state = outputs.hidden_states[-1]
 
         mean_embedding = average_pool(last_hidden_state, inputs["attention_mask"])
