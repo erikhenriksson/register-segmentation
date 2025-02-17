@@ -40,6 +40,13 @@ class MultiScaleConfig:
     scale_weights = {"short": 1, "long": 1, "whole": 1}
 
 
+def average_pool(
+    last_hidden_states: torch.Tensor, attention_mask: torch.Tensor
+) -> torch.Tensor:
+    last_hidden = last_hidden_states.masked_fill(~attention_mask[..., None].bool(), 0.0)
+    return last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+
+
 class MultiScaleSegmenter:
     def __init__(self, model_path: str, config: MultiScaleConfig = None):
         self.model = AutoModelForSequenceClassification.from_pretrained(
@@ -96,10 +103,11 @@ class MultiScaleSegmenter:
             batch_probs = torch.sigmoid(outputs.logits).cpu().numpy()
             last_hidden_state = outputs.hidden_states[-1]
 
-        attention_mask = inputs["attention_mask"].unsqueeze(-1)
-        batch_embeddings = (last_hidden_state * attention_mask).sum(
-            dim=1
-        ) / attention_mask.sum(dim=1)
+        # Use the pooling function for the batch
+        batch_embeddings = average_pool(last_hidden_state, inputs["attention_mask"])
+
+        # Move to CPU for consistency with the rest of the code
+        batch_embeddings = batch_embeddings.cpu()
 
         # Cache the results and prepare final output
         all_probs = []
@@ -131,7 +139,7 @@ class MultiScaleSegmenter:
         inputs = self.tokenizer(
             text,
             truncation=True,
-            max_length=self.config.max_length,
+            # max_length=self.config.max_length,
             return_tensors="pt",
             add_special_tokens=True,
         )
@@ -142,12 +150,7 @@ class MultiScaleSegmenter:
             probs = torch.sigmoid(outputs.logits).cpu().numpy()[0]
             last_hidden_state = outputs.hidden_states[-1]
 
-        attention_mask = inputs["attention_mask"].unsqueeze(
-            -1
-        )  # Expand for broadcasting
-        mean_embedding = (last_hidden_state * attention_mask).sum(
-            dim=1
-        ) / attention_mask.sum(dim=1)
+        mean_embedding = average_pool(last_hidden_state, inputs["attention_mask"])
 
         # Cache the results
         self._prediction_cache[text] = (probs, mean_embedding)
