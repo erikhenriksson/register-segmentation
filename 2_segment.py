@@ -1,109 +1,568 @@
-import glob
-import json
+print("Importing basic libraries...")
 import sys
+import json
+import glob
+from dataclasses import dataclass
+from typing import List, Tuple, Dict
 
-import nltk
+print("Importing pandas and numpy")
 import pandas as pd
+import numpy as np
+
+print("Importing spacy")
+import spacy
+
+print("Importing torch and transformers")
 import torch
-from nltk.tokenize import sent_tokenize
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModel
 
-from labels import labels
+LABELS = ["LY", "SP", "ID", "NA", "HI", "IN", "OP", "IP"]
+
+nlp = spacy.load("en_core_web_sm")
 
 
-class TextSegmenter:
-    def __init__(self, model_path):
-        nltk.download("punkt")
+def get_sentences(text):
+    doc = nlp(text)
+    # Get character spans
+    sent_char_spans = [(sent.start_char, sent.end_char) for sent in doc.sents]
+    # Get sentence texts
+    sentences = [text[s:e] for s, e in sent_char_spans]
+    return sent_char_spans, sentences
 
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
-        self.tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-large")
-        self.model = self.model.to("cuda")
+
+@dataclass
+class MultiScaleConfig:
+    max_length: int = 8192
+    min_tokens: int = 0  # Minimum token count per segment
+    classification_threshold: float = 0.70
+    min_register_diff: float = 0.04
+    scale_weights = {"short": 1, "long": 1, "whole": 1}
+
+
+def average_pool(
+    last_hidden_states: torch.Tensor, attention_mask: torch.Tensor
+) -> torch.Tensor:
+    last_hidden = last_hidden_states.masked_fill(~attention_mask[..., None].bool(), 0.0)
+    return last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+
+
+class MultiScaleSegmenter:
+    def __init__(self, model_path: str, config: MultiScaleConfig = None):
+        # Initialize register classifier model
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,
+            output_hidden_states=True,
+        ).to("cuda")
         self.model.eval()
-        self.model.config.output_hidden_states = True
 
-    def get_probs_and_embedding(self, text):
+        # Initialize base ModernBERT for semantic embeddings
+        self.semantic_model = AutoModel.from_pretrained(
+            "answerdotai/ModernBERT-large",
+            torch_dtype=torch.bfloat16,
+            output_hidden_states=True,
+        ).to("cuda")
+        self.semantic_model.eval()
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "answerdotai/ModernBERT-large", use_fast=True
+        )
+        self.config = config or MultiScaleConfig()
+
+        # Cache for offset mapping (for token/character conversion)
+        self.offset_mapping = None
+
+        # Cache for predictions and embeddings
+        self._prediction_cache = {}
+        self._semantic_cache = {}
+
+    def get_semantic_embeddings_batch(self, texts: List[str]) -> List[torch.Tensor]:
+        """Get semantic embeddings for a batch of texts using base ModernBERT."""
+        # Check cache first and collect uncached texts
+        uncached_texts = []
+        uncached_indices = []
+        cached_results = []
+
+        for i, text in enumerate(texts):
+            if text in self._semantic_cache:
+                cached_results.append(self._semantic_cache[text])
+            else:
+                uncached_texts.append(text)
+                uncached_indices.append(i)
+
+        if not uncached_texts:
+            return cached_results
+
+        # Tokenize all uncached texts at once
+        inputs = self.tokenizer(
+            uncached_texts,
+            truncation=True,
+            max_length=self.config.max_length,
+            return_tensors="pt",
+            padding=True,
+            add_special_tokens=True,
+        )
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
         with torch.no_grad():
-            inputs = self.tokenizer(
-                text,
-                padding=True,
-                truncation=True,
-                max_length=2048,
-                return_tensors="pt",
-            ).to("cuda")
-            outputs = self.model(**inputs)
-            probs = [float(p) for p in torch.sigmoid(outputs.logits).cpu().numpy()[0]]
-            embedding = [
-                float(e) for e in outputs.hidden_states[-1][0, 0].cpu().numpy()
-            ]  # CLS token
-            return probs, embedding
+            outputs = self.semantic_model(**inputs)
+            last_hidden_state = outputs.hidden_states[-1]
 
-    def truncate_text(self, text):
+        # Use the pooling function for the batch
+        batch_embeddings = average_pool(last_hidden_state, inputs["attention_mask"])
+        batch_embeddings = batch_embeddings.cpu()
+
+        # Cache the results and prepare final output
+        all_embeddings = []
+        cached_idx = 0
+        uncached_idx = 0
+
+        for i in range(len(texts)):
+            if i in uncached_indices:
+                embedding = batch_embeddings[uncached_idx]
+                self._semantic_cache[texts[i]] = embedding
+                all_embeddings.append(embedding)
+                uncached_idx += 1
+            else:
+                all_embeddings.append(cached_results[cached_idx])
+                cached_idx += 1
+
+        return all_embeddings
+
+    def get_register_probs_batch(
+        self, texts: List[str]
+    ) -> Tuple[List[np.ndarray], List[torch.Tensor], List[torch.Tensor]]:
+        """Get register probabilities and both types of embeddings for a batch of texts."""
+        # Check cache first and collect uncached texts
+        uncached_texts = []
+        uncached_indices = []
+        cached_results = []
+
+        for i, text in enumerate(texts):
+            if text in self._prediction_cache:
+                cached_results.append(self._prediction_cache[text])
+            else:
+                uncached_texts.append(text)
+                uncached_indices.append(i)
+
+        if not uncached_texts:
+            probs = [result[0] for result in cached_results]
+            embeddings = [result[1] for result in cached_results]
+            semantic_embeddings = self.get_semantic_embeddings_batch(texts)
+            return probs, embeddings, semantic_embeddings
+
+        # Tokenize all uncached texts at once
+        inputs = self.tokenizer(
+            uncached_texts,
+            truncation=True,
+            max_length=self.config.max_length,
+            return_tensors="pt",
+            padding=True,
+            add_special_tokens=True,
+        )
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            batch_probs = torch.sigmoid(outputs.logits).float().cpu().numpy()
+            last_hidden_state = outputs.hidden_states[-1]
+
+        # Use the pooling function for the batch
+        batch_embeddings = average_pool(last_hidden_state, inputs["attention_mask"])
+        batch_embeddings = batch_embeddings.cpu()
+
+        # Get semantic embeddings
+        semantic_embeddings = self.get_semantic_embeddings_batch(texts)
+
+        # Cache the results and prepare final output
+        all_probs = []
+        all_embeddings = []
+        all_semantic_embeddings = []
+        cached_idx = 0
+        uncached_idx = 0
+
+        for i in range(len(texts)):
+            if i in uncached_indices:
+                probs = batch_probs[uncached_idx]
+                embedding = batch_embeddings[uncached_idx]
+                semantic_embedding = semantic_embeddings[uncached_idx]
+                self._prediction_cache[texts[i]] = (probs, embedding)
+                self._semantic_cache[texts[i]] = semantic_embedding
+                all_probs.append(probs)
+                all_embeddings.append(embedding)
+                all_semantic_embeddings.append(semantic_embedding)
+                uncached_idx += 1
+            else:
+                all_probs.append(cached_results[cached_idx][0])
+                all_embeddings.append(cached_results[cached_idx][1])
+                all_semantic_embeddings.append(semantic_embeddings[cached_idx])
+                cached_idx += 1
+
+        return all_probs, all_embeddings, all_semantic_embeddings
+
+    def get_register_probs(
+        self, text: str
+    ) -> Tuple[np.ndarray, torch.Tensor, torch.Tensor]:
+        """Get register probabilities and both embeddings for text."""
+        # Check cache first
+        if text in self._prediction_cache and text in self._semantic_cache:
+            reg_result = self._prediction_cache[text]
+            semantic_embedding = self._semantic_cache[text]
+            return reg_result[0], reg_result[1], semantic_embedding
+
+        # Get register probabilities and embeddings
+        inputs = self.tokenizer(
+            text,
+            truncation=True,
+            max_length=self.config.max_length,
+            return_tensors="pt",
+            add_special_tokens=True,
+        )
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        with torch.no_grad():
+            # Get register predictions
+            outputs = self.model(**inputs)
+            probs = torch.sigmoid(outputs.logits).float().cpu().numpy()[0]
+            reg_embedding = average_pool(
+                outputs.hidden_states[-1], inputs["attention_mask"]
+            ).cpu()
+
+            # Get semantic embedding
+            semantic_outputs = self.semantic_model(**inputs)
+            semantic_embedding = average_pool(
+                semantic_outputs.hidden_states[-1], inputs["attention_mask"]
+            ).cpu()
+
+        # Cache both results
+        self._prediction_cache[text] = (probs, reg_embedding)
+        self._semantic_cache[text] = semantic_embedding
+
+        return probs, reg_embedding, semantic_embedding
+
+    def prepare_document(self, text: str):
+        """Store offset mapping for token/character conversion."""
+        inputs = self.tokenizer(
+            text,
+            truncation=True,
+            max_length=self.config.max_length,
+            return_tensors="pt",
+            return_offsets_mapping=True,
+            add_special_tokens=True,
+        )
+        self.offset_mapping = inputs["offset_mapping"][0].cpu().tolist()
+
+    def get_text_for_span(self, text: str, start_token: int, end_token: int) -> str:
+        """Get the original text corresponding to a token span."""
+        char_start = self.offset_mapping[start_token][0]
+        char_end = self.offset_mapping[end_token - 1][1]
+        return text[char_start:char_end]
+
+    def compute_register_distinctness(
+        self, probs1: np.ndarray, probs2: np.ndarray, parent_probs: np.ndarray = None
+    ) -> float:
+        """Compute how distinct two spans are using cosine distance."""
+        # Get active registers using threshold
+        regs1 = set(np.where(probs1 >= self.config.classification_threshold)[0])
+        regs2 = set(np.where(probs2 >= self.config.classification_threshold)[0])
+        parent_regs = (
+            set(np.where(parent_probs >= self.config.classification_threshold)[0])
+            if parent_probs is not None
+            else set()
+        )
+
+        if not (regs1 and regs2):
+            return 0.0, [], []
+        if regs1 == parent_regs == regs2:
+            return 0.0, [], []
+        if regs1 == regs2:
+            return 0.0, [], []
+
+        # Compute cosine distance
+        similarity = np.dot(probs1, probs2) / (
+            np.linalg.norm(probs1) * np.linalg.norm(probs2)
+        )
+        distance = 1 - similarity
+        normalized_distance = distance
+
+        return normalized_distance, regs1, regs2
+
+    def evaluate_split(
+        self,
+        text: str,
+        left_spans: List[Tuple[int, int]],
+        right_spans: List[Tuple[int, int]],
+        window_size: int = 0,
+    ) -> float:
+        """Evaluate split using window_size groups on each side of boundary."""
+        if len(left_spans) < window_size or len(right_spans) < window_size:
+            return None, [], []
+
+        left_window = (left_spans[-window_size][0], left_spans[-1][1])
+        right_window = (right_spans[0][0], right_spans[window_size - 1][1])
+
+        left_text = self.get_text_for_span(text, left_window[0], left_window[1])
+        right_text = self.get_text_for_span(text, right_window[0], right_window[1])
+        parent_text = self.get_text_for_span(text, left_window[0], right_window[1])
+
+        # Batch the three predictions together
+        batch_probs, _, _ = self.get_register_probs_batch(
+            [left_text, right_text, parent_text]
+        )
+        left_probs, right_probs, parent_probs = batch_probs
+
+        return self.compute_register_distinctness(left_probs, right_probs, parent_probs)
+
+    def find_best_split(
+        self,
+        text: str,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        depth: int,
+        side: str,
+    ) -> Tuple[int, float]:
+        """Find best split point using multi-scale analysis."""
+        best_score = 0
+        best_split = None
+        best_regs_left = []
+        best_regs_right = []
+
+        for i in range(1, len(sentences)):
+            scores = []
+            left_spans = sent_spans[:i]
+            right_spans = sent_spans[i:]
+
+            left_length = left_spans[-1][-1] - left_spans[0][0]
+            right_length = right_spans[-1][-1] - right_spans[0][0]
+
+            if (
+                left_length < self.config.min_tokens
+                or right_length < self.config.min_tokens
+            ):
+                continue
+
+            # Always do whole segment comparison
+            score_whole, whole_regs_left, whole_regs_right = self.evaluate_split(
+                text, left_spans, right_spans
+            )
+            if score_whole == 0:
+                continue
+
+            # Get minimum segment length in tokens
+            min_tokens = min(left_length, right_length)
+
+            scores.append(
+                score_whole * self.config.scale_weights["whole"] * min_tokens / 8192
+            )
+
+            # Short window (2+2)
+            score_short, short_regs_left, short_regs_right = self.evaluate_split(
+                text, left_spans, right_spans, window_size=2
+            )
+            if (
+                score_short
+                and short_regs_left == whole_regs_left
+                and short_regs_right == whole_regs_right
+            ):
+                scores.append(
+                    score_short * self.config.scale_weights["short"] * min_tokens / 8192
+                )
+
+            # Long window (4+4)
+            score_long, long_regs_left, long_regs_right = self.evaluate_split(
+                text, left_spans, right_spans, window_size=5
+            )
+            if (
+                score_long
+                and long_regs_left == whole_regs_left
+                and long_regs_right == whole_regs_right
+            ):
+                scores.append(
+                    score_long * self.config.scale_weights["long"] * min_tokens / 8192
+                )
+
+            total_score = np.sum(scores) if scores else 0.0
+            if total_score > best_score:
+                best_score = total_score
+                best_split = i
+                best_regs_left = whole_regs_left
+                best_regs_right = whole_regs_right
+
+        print(
+            f"Depth: {depth}, Side: {side}, Best split: {best_split}, Best score: {best_score}, Best regs left: {[LABELS[int(x)] for x in best_regs_left]}, Best regs right: {[LABELS[int(x)] for x in best_regs_right]}"
+        )
+        return best_split, best_score
+
+    def segment_recursive(
+        self,
+        text: str,
+        sentences: List[str],
+        sent_spans: List[Tuple[int, int]],
+        prob_chain: List[np.ndarray] = [],
+        depth: int = 0,
+        side: str = "root",
+    ) -> List[Tuple[str, List[np.ndarray], torch.Tensor, torch.Tensor]]:
+        """Recursively segment text using binary splitting."""
+        # Get probabilities and both embeddings for current segment
+        span_text = self.get_text_for_span(text, sent_spans[0][0], sent_spans[-1][-1])
+        current_probs, current_embedding, current_semantic = self.get_register_probs(
+            span_text
+        )
+
+        new_chain = prob_chain + [current_probs]
+
+        split_idx, score = self.find_best_split(
+            text, sentences, sent_spans, depth, side
+        )
+
+        if score < self.config.min_register_diff or split_idx is None or depth >= 3:
+            return [(span_text, new_chain, current_embedding, current_semantic)]
+
+        left_segments = self.segment_recursive(
+            text,
+            sentences[:split_idx],
+            sent_spans[:split_idx],
+            new_chain,
+            depth + 1,
+            "left",
+        )
+        right_segments = self.segment_recursive(
+            text,
+            sentences[split_idx:],
+            sent_spans[split_idx:],
+            new_chain,
+            depth + 1,
+            "right",
+        )
+
+        return left_segments + right_segments
+
+    def segment_text(
+        self, text: str
+    ) -> List[Tuple[str, List[np.ndarray], torch.Tensor, torch.Tensor]]:
+        """Main entry point for text segmentation."""
+        self._prediction_cache = {}
+        self._semantic_cache = {}
+        text = self.truncate_text(text)
+
+        sent_char_spans, sentences = get_sentences(text)
+        self.prepare_document(text)
+        offset_mapping = np.array(self.offset_mapping)
+
+        sent_spans = []
+        for char_start, char_end in sent_char_spans:
+            token_start = None
+            token_end = None
+            for i, (tok_start, tok_end) in enumerate(offset_mapping):
+                if tok_start == tok_end == 0:
+                    continue
+                if token_start is None and tok_end > char_start:
+                    token_start = i
+                if tok_start < char_end:
+                    token_end = i + 1
+                else:
+                    break
+            if token_start is None or token_end is None:
+                token_start, token_end = 0, 0
+            sent_spans.append((int(token_start), int(token_end)))
+
+        if not sent_spans:
+            probs, embedding, semantic = self.get_register_probs(text)
+            return [(text, [probs], embedding, semantic)]
+
+        return self.segment_recursive(text, sentences, sent_spans)
+
+    def truncate_text(self, text: str) -> str:
+        """Truncate text to max_length tokens."""
         tokens = self.tokenizer(text, truncation=False, return_tensors="pt")[
             "input_ids"
         ][0]
-        if len(tokens) > 2048:
-            text = self.tokenizer.decode(tokens[:2048], skip_special_tokens=True)
+        if len(tokens) > self.config.max_length:
+            text = self.tokenizer.decode(
+                tokens[: self.config.max_length], skip_special_tokens=True
+            )
         return text
 
-    def split_to_sentences(self, text):
-        return sent_tokenize(text)
+    def print_result(self, result: Dict):
+        """Print segmentation results with hierarchical register information."""
+        print(f"\nText [{result['id']}]")
+        print(f"True label: {result['label']}")
 
-    def compute_gain(self, parent_probs, segment_probs):
-        return (max(segment_probs[0]) + max(segment_probs[1])) / 2 - max(parent_probs)
+        # Get document-level registers
+        doc_registers = [
+            LABELS[i]
+            for i, p in enumerate(result["text_probs"])
+            if p >= self.config.classification_threshold
+        ]
+        print(f"Predicted registers: {', '.join(doc_registers)}")
+        print("Segments:")
 
-    def segment_recursively(self, text):
-        sentences = self.split_to_sentences(text)
-        if len(sentences) < 2 or len(text) < 1000:
-            probs, embedding = self.get_probs_and_embedding(text)
-            return [(text, probs, embedding)]
+        for i, seg in enumerate(result["segments"], 1):
+            # Create hierarchical register string
+            register_chain = []
+            for prob_level in seg["probs"]:
+                level_registers = [
+                    LABELS[i]
+                    for i, p in enumerate(prob_level)
+                    if p >= self.config.classification_threshold
+                ]
+                if level_registers:  # Only add non-empty register lists
+                    register_chain.append(" ".join(level_registers))
 
-        parent_probs, _ = self.get_probs_and_embedding(text)
-        best_gain = 0
-        best_segments = None
+            # Join with '>' to show hierarchy
+            register_str = " > ".join(register_chain)
 
-        for split_idx in range(1, len(sentences)):
-            segment1 = " ".join(sentences[:split_idx])
-            segment2 = " ".join(sentences[split_idx:])
+            # New logic for simplified printing
+            all_registers = []
+            for idx, prob_level in enumerate(seg["probs"]):
+                level_registers = [
+                    LABELS[i]
+                    for i, p in enumerate(prob_level)
+                    if p >= self.config.classification_threshold
+                ]
+                # Check for IP or LY in non-first level
+                if idx > 0 and ("IP" in level_registers or "LY" in level_registers):
+                    simplified_str = next(
+                        reg for reg in level_registers if reg in ["IP", "LY"]
+                    )
+                    break
+                all_registers.extend(level_registers)
+            else:  # This runs if no IP/LY found in non-first levels
+                # Get unique registers, prioritizing ID/SP/IN and last level
+                special_registers = set()
+                last_level_registers = set(
+                    [
+                        LABELS[i]
+                        for i, p in enumerate(seg["probs"][-1])
+                        if p >= self.config.classification_threshold
+                    ]
+                )
 
-            if len(segment1) >= 500 and len(segment2) >= 500:
-                probs1, _ = self.get_probs_and_embedding(segment1)
-                probs2, _ = self.get_probs_and_embedding(segment2)
-                gain = self.compute_gain(parent_probs, [probs1, probs2])
+                # Collect ID/SP/IN from all levels
+                for regs in register_chain:
+                    for reg in regs.split():
+                        if reg in ["ID", "SP", "IN"]:
+                            special_registers.add(reg)
 
-                if gain > best_gain:
-                    best_gain = gain
-                    best_segments = (segment1, segment2)
+                # Combine special registers with last level, removing duplicates
+                simplified_str = " ".join(
+                    sorted(special_registers | last_level_registers)
+                )
 
-        if best_segments is None:
-            probs, embedding = self.get_probs_and_embedding(text)
-            return [(text, probs, embedding)]
-
-        seg1_text, seg2_text = best_segments
-        segments1 = self.segment_recursively(seg1_text)
-        segments2 = self.segment_recursively(seg2_text)
-        return segments1 + segments2
+            print(f"\nSegment {i} [{register_str}]:")
+            print(f"Simplified: {simplified_str}")
+            print(seg["text"])
+            print("---")
 
 
-def print_result(item, threshold=0.35):
-    print(f"\n---- Text [{item['id']}] ----")
-    print(f"True label: {item['label']}")
-
-    text_pred_labels = [
-        labels[i] for i, p in enumerate(item["text_probs"]) if p > threshold
-    ]
-    print(f"Pred label: {', '.join(text_pred_labels)}")
-
-    for j, seg in enumerate(item["segments"], 1):
-        pred_labels = [labels[i] for i, p in enumerate(seg["probs"]) if p > threshold]
-        print(f"Segment {j} [{', '.join(pred_labels)}]: {seg['text'][:1000]}...")
-
-
-def get_last_processed_id():
+def get_last_processed_id(output_path):
+    """Get the ID of the last processed document."""
     try:
-        with open("segmentations.jsonl", "r", encoding="utf-8") as f:
+        with open(output_path, "r", encoding="utf-8") as f:
             last_line = None
             for line in f:
-                last_line = line
+                if line.strip():  # Skip empty lines
+                    last_line = line
             if last_line:
                 return json.loads(last_line)["id"]
     except FileNotFoundError:
@@ -111,48 +570,69 @@ def get_last_processed_id():
     return -1
 
 
-def main(model_path, dataset_path):
+def main(model_path, dataset_path, output_path):
+    """Main function to process documents and generate segments."""
+    config = MultiScaleConfig()
     all_data = []
-    for tsv_file in glob.glob(f"{dataset_path}/*.tsv"):
-        df = pd.read_csv(
-            tsv_file,
-            sep="\t",
-            header=None,
-            names=["label", "text"],
-            na_values="",
-            keep_default_na=False,
-        )
-        all_data.append(df)
+    files = ["dev.tsv", "test.tsv", "train.tsv"]
+    for tsv_file in files:
+        try:
+            df = pd.read_csv(
+                f"{dataset_path}/{tsv_file}",
+                sep="\t",
+                header=None,
+                names=["label", "text"],
+                na_values="",
+                keep_default_na=False,
+            )
+            all_data.append(df)
+        except:
+            pass
     combined_df = pd.concat(all_data, ignore_index=True)
 
-    last_id = get_last_processed_id()
-    segmenter = TextSegmenter(model_path=model_path)
+    last_id = get_last_processed_id(output_path)
+    segmenter = MultiScaleSegmenter(model_path=model_path, config=config)
 
     print("last_id:", last_id)
 
-    with open("segmentations.jsonl", "a", encoding="utf-8") as f:
+    with open(output_path, "a", encoding="utf-8") as f:
         for i, row in combined_df.iterrows():
             if i <= last_id:
                 continue
 
-            text = segmenter.truncate_text(row["text"])
-            full_probs, full_embedding = segmenter.get_probs_and_embedding(text)
-            segments = segmenter.segment_recursively(text)
+            text = row["text"]
+            text_probs, text_embedding, text_semantic = segmenter.get_register_probs(
+                text
+            )
+            segments = segmenter.segment_text(text)
+
             result = {
                 "id": i,
                 "label": row["label"],
-                "text_probs": full_probs,
-                "text_embedding": full_embedding,
+                "text_probs": [round(x, 8) for x in text_probs.tolist()],
+                "text_embedding": text_embedding.tolist(),
+                "text_embedding_semantic": text_semantic.tolist(),
                 "segments": [
-                    {"text": text, "probs": probs, "embedding": emb}
-                    for text, probs, emb in segments
+                    {
+                        "text": text,
+                        "probs": [
+                            [round(x, 8) for x in prob_array.tolist()]
+                            for prob_array in probs
+                        ],
+                        "embedding": emb.tolist(),
+                        "embedding_semantic": sem.tolist(),
+                    }
+                    for text, probs, emb, sem in segments
                 ],
             }
+
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
+            segmenter.print_result(result)
+            f.flush()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: <model_path> <dataset_path>")
+    if len(sys.argv) != 4:
+        print("Usage: <model_path> <dataset_path> <output_path>")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
