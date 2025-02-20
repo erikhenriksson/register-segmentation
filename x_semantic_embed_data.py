@@ -29,7 +29,7 @@ def batch_encode_texts(texts: List[str], tokenizer, model, batch_size: int = 32)
         input_data = {k: v.cuda() for k, v in input_data.items()}
         attention_mask = input_data["attention_mask"]
         last_hidden_state = model(**input_data)[0]
-        last_hidden = last_hidden_masked_fill(~attention_mask[..., None].bool(), 0.0)
+        last_hidden = last_hidden.masked_fill(~attention_mask[..., None].bool(), 0.0)
         batch_vectors = last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
 
     return batch_vectors.cpu().numpy().tolist()
