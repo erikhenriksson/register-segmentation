@@ -28,7 +28,9 @@ def process_texts_streaming(
 
             try:
                 # Process full text
-                parsed = nlp.posdep(item["text"])
+                parsed = nlp.posdep(
+                    " ".join([segment["text"] for segment in item["segments"]])
+                )
 
                 # Create and write full text entry immediately
                 full_text_entry = {
