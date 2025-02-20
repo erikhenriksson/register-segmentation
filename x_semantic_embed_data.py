@@ -66,13 +66,13 @@ def process_data(
     # Initialize model and tokenizer
     logger.info("Initializing model and tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        "answerdotai/ModernBERT-large", trust_remote_code=True
+        "NovaSearch/stella_en_400M_v5", trust_remote_code=True
     )
     model = AutoModel.from_pretrained(
-        "answerdotai/ModernBERT-large",
+        "NovaSearch/stella_en_400M_v5",
         trust_remote_code=True,
-        # use_memory_efficient_attention=False,
-        # unpad_inputs=False,
+        use_memory_efficient_attention=False,
+        unpad_inputs=False,
     )
     model.cuda()
     model.eval()
@@ -142,20 +142,20 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--input",
-        default="s_hierarchy.jsonl",
+        default="s_merged.jsonl",
         type=str,
         help="Input JSONL file",
     )
     parser.add_argument(
         "--full-output",
         type=str,
-        default="full_text_semantic_m.jsonl",
+        default="full_text_semantic.jsonl",
         help="Output file for full text embeddings",
     )
     parser.add_argument(
         "--segment-output",
         type=str,
-        default="segment_semantic_m.jsonl",
+        default="segment_semantic.jsonl",
         help="Output file for segment embeddings",
     )
     parser.add_argument(
