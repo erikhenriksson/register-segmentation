@@ -142,7 +142,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--input",
-        default="s_merged.jsonl",
+        default="s_hierarchy.jsonl",
         type=str,
         help="Input JSONL file",
     )
