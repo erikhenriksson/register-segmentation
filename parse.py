@@ -66,7 +66,7 @@ def process_texts_streaming(
 
 if __name__ == "__main__":
     # Configuration
-    INPUT_FILE = "s_hierarchy.jsonl"  # Your input file
+    INPUT_FILE = "s_merged.jsonl"  # Your input file
     FULL_TEXT_OUTPUT = "full_text_parsed.jsonl"
     SEGMENT_OUTPUT = "segment_parsed.jsonl"
     LANGUAGE = "english"  # Or whatever language your texts are in
