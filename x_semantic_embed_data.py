@@ -87,10 +87,10 @@ def process_data(
     batch_records = []
 
     for item in tqdm(iterate_jsonl(input_file)):
-        batch_texts.append(item.get("text", ""))  # Using get() with default value
-        batch_records.append(
-            {"text": item.get("text", ""), "probs": item["text_probs"]}
-        )
+        full_text = " ".join(segment["text"] for segment in item["segments"])
+
+        batch_texts.append(full_text)
+        batch_records.append({"text": full_text, "probs": item["text_probs"]})
 
         if len(batch_texts) >= batch_size:
             process_batch(
