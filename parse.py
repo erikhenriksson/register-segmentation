@@ -32,7 +32,7 @@ def process_texts(
 
     for item in data:
         # Process full text
-        parsed = nlp.posdep(item["text"])  # This gives POS tags and dependencies
+        parsed = nlp.posdep(" ".join(segment["text"] for segment in item["segments"]))
 
         # Create full text entry with probabilities and parsed info
         full_text_entry = {
