@@ -9,7 +9,7 @@ def process_texts_streaming(
 ):
     """Process texts using trankit and save results to JSONL files incrementally."""
     # Initialize trankit
-    nlp = trankit.Pipeline(lang)
+    nlp = trankit.Pipeline(lang, gpu=True)
 
     # Open both output files in write mode
     with open(input_file, "r", encoding="utf-8") as f_in, open(
