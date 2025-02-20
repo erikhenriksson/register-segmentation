@@ -254,7 +254,7 @@ training_args = TrainingArguments(
     learning_rate=3e-5,
     warmup_ratio=0.05,
     weight_decay=0.01,
-    tf32=True,
+    #tf32=True,
     group_by_length=True,
     bf16=True if model_type != "modernbert" else False,
     fp16=True if model_type == "modernbert" else False,
