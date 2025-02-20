@@ -67,7 +67,10 @@ def process_data(
         "NovaSearch/stella_en_400M_v5", trust_remote_code=True
     )
     model = AutoModel.from_pretrained(
-        "NovaSearch/stella_en_400M_v5", trust_remote_code=True
+        "NovaSearch/stella_en_400M_v5",
+        trust_remote_code=True,
+        use_memory_efficient_attention=False,
+        unpad_inputs=False,
     )
     model.cuda()
     model.eval()
