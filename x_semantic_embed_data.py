@@ -104,6 +104,7 @@ def process_data(
         process_batch(batch_texts, batch_records, tokenizer, model, full_text_output)
 
     # Process segments
+    exit()
     logger.info("Processing segments...")
     batch_texts = []
     batch_records = []
