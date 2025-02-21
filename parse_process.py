@@ -33,13 +33,18 @@ def extract_features(
 ) -> Dict[str, float]:
     """Extract all linguistic features from parsed text and normalize by length."""
     features = Counter()
-    n_tokens = len(parsed["tokens"])
 
+    # Get all tokens across all sentences
+    all_tokens = []
+    for sent in parsed["sentences"]:
+        all_tokens.extend(sent["tokens"])
+
+    n_tokens = len(all_tokens)
     if n_tokens == 0:
         return {}
 
     # Extract all features
-    for token in parsed["tokens"]:
+    for token in all_tokens:
         # POS tags
         features[f'pos_{token["upos"]}'] += 1
 
