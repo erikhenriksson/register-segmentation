@@ -46,14 +46,17 @@ def extract_features(
     # Extract all features
     for token in all_tokens:
         # POS tags
-        features[f'pos_{token["upos"]}'] += 1
+        if "upos" in token:
+            features[f'pos_{token["upos"]}'] += 1
 
         # Dependency relations
-        features[f'dep_{token["deprel"]}'] += 1
+        if "deprel" in token:
+            features[f'dep_{token["deprel"]}'] += 1
 
-        # Morphological features
-        for feat in split_feats(token["feats"]):
-            features[f"morph_{feat}"] += 1
+        # Morphological features - check if feats exists and has content
+        if "feats" in token and token["feats"]:
+            for feat in split_feats(token["feats"]):
+                features[f"morph_{feat}"] += 1
 
     # Normalize if requested
     if normalize:
