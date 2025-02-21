@@ -34,7 +34,7 @@ def extract_features(
     """Extract all linguistic features from parsed text and normalize by length."""
     features = Counter()
 
-    # Get all tokens across all sentences
+    # Get all tokens from all sentences
     all_tokens = []
     for sent in parsed["sentences"]:
         all_tokens.extend(sent["tokens"])
@@ -87,12 +87,15 @@ def process_file(input_path: str, is_segment: bool = False) -> List[Dict[str, An
             if not features:  # Skip empty documents
                 continue
 
+            # Count total tokens across all sentences
+            n_tokens = sum(len(sent["tokens"]) for sent in entry["parsed"]["sentences"])
+
             processed_data.append(
                 {
                     "id": entry["id"],
                     "register": register,
                     "features": features,
-                    "text_length": len(entry["parsed"]["tokens"]),
+                    "text_length": n_tokens,
                 }
             )
 
