@@ -32,6 +32,8 @@ models = {
 model_type = sys.argv[1] if len(sys.argv) > 1 else ""
 dataset = sys.argv[2] if len(sys.argv) > 2 else ""
 TRAIN = len(sys.argv) > 3 and sys.argv[3] == "train"
+EMBED_ALL = len(sys.argv) > 4 and sys.argv[4] == "embed_all"
+
 if model_type not in models:
     print(f"Invalid model type: {model_type}")
     sys.exit(1)
@@ -316,8 +318,80 @@ for metric, value in test_results.items():
         print(f"{metric}: {value:.4f}")
 
 
-# For final test evaluation, create a new model instance with hidden states enabled
-print("\nLoading best model for test evaluation...")
+def process_dataset_embeddings(model, dataset_loader, raw_data):
+    all_predictions = []
+    all_labels = []
+    all_embeddings = []
+
+    with torch.no_grad():
+        for batch in dataset_loader:
+            # Move batch to GPU
+            batch = {k: v.to(model.device) for k, v in batch.items()}
+
+            # Get model outputs
+            outputs = model(**batch)
+
+            # Process predictions
+            predictions = torch.sigmoid(outputs.logits).cpu().numpy().tolist()
+            all_predictions.extend(predictions)
+            all_labels.extend(batch["labels"].cpu().numpy().tolist())
+
+            # Process embeddings
+            embeddings = outputs.hidden_states[-1].cpu()
+            attention_mask = batch["attention_mask"].cpu().unsqueeze(-1)
+            embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(
+                dim=1
+            )
+            embeddings = embeddings.numpy().tolist()
+            all_embeddings.extend(embeddings)
+
+            # Clear memory
+            del outputs
+            del embeddings
+            torch.cuda.empty_cache()
+
+    texts = [example["text"] for example in raw_data]
+    label_strings = [" ".join(example["labels"]) for example in raw_data]
+
+    return all_predictions, all_labels, all_embeddings, texts, label_strings
+
+
+def save_predictions_and_embeddings(
+    predictions, labels, embeddings, texts, label_strings, prefix, working_dir
+):
+    # Save predictions
+    with open(f"{working_dir}/{prefix}_predictions.jsonl", "w", encoding="utf-8") as f:
+        for probs, labels, text, labels_str in zip(
+            predictions, labels, texts, label_strings
+        ):
+            json.dump(
+                {
+                    "pred_probs": probs,
+                    "labels": labels,
+                    "text": text,
+                    "labels_str": labels_str,
+                },
+                f,
+                ensure_ascii=False,
+            )
+            f.write("\n")
+
+    # Save embeddings
+    with open(f"{working_dir}/{prefix}_embeddings.jsonl", "w", encoding="utf-8") as f:
+        for embedding, text in zip(embeddings, texts):
+            json.dump(
+                {
+                    "embedding": embedding,
+                    "text": text,
+                },
+                f,
+                ensure_ascii=False,
+            )
+            f.write("\n")
+
+
+# For final evaluation, create a new model instance with hidden states enabled
+print("\nLoading best model for evaluation...")
 if model_type == "deberta":
     config = DebertaV2Config.from_pretrained(f"{working_dir}/best_model")
     config.output_hidden_states = True
@@ -332,72 +406,56 @@ else:
     )
 model = model.to("cuda")
 model.eval()
-# Process test data in smaller batches
-test_dataloader = DataLoader(
-    tokenized_test, batch_size=8, shuffle=False
-)  # Reduced batch size
-all_predictions = []
-all_labels = []
-all_embeddings = []
 
-with torch.no_grad():
-    for batch in test_dataloader:
-        # Move batch to GPU
-        batch = {k: v.to(model.device) for k, v in batch.items()}
+# Process test data
+test_dataloader = DataLoader(tokenized_test, batch_size=8, shuffle=False)
+test_predictions, test_labels, test_embeddings, test_texts, test_label_strings = (
+    process_dataset_embeddings(model, test_dataloader, test_data)
+)
 
-        # Get model outputs
-        outputs = model(**batch)
+# Save test predictions and embeddings
+save_predictions_and_embeddings(
+    test_predictions,
+    test_labels,
+    test_embeddings,
+    test_texts,
+    test_label_strings,
+    "test",
+    working_dir,
+)
 
-        # Process predictions
-        predictions = torch.sigmoid(outputs.logits).cpu().numpy().tolist()
-        all_predictions.extend(predictions)
-        all_labels.extend(batch["labels"].cpu().numpy().tolist())
+# If embed_all flag is set, process and save train and dev data as well
+if EMBED_ALL:
+    print("\nProcessing training data embeddings...")
+    train_dataloader = DataLoader(tokenized_train, batch_size=8, shuffle=False)
+    (
+        train_predictions,
+        train_labels,
+        train_embeddings,
+        train_texts,
+        train_label_strings,
+    ) = process_dataset_embeddings(model, train_dataloader, train_data)
+    save_predictions_and_embeddings(
+        train_predictions,
+        train_labels,
+        train_embeddings,
+        train_texts,
+        train_label_strings,
+        "train",
+        working_dir,
+    )
 
-        # Process embeddings
-        embeddings = outputs.hidden_states[-1].cpu()  # Get last hidden state
-        attention_mask = batch["attention_mask"].cpu().unsqueeze(-1)
-        embeddings = (embeddings * attention_mask).sum(dim=1) / attention_mask.sum(
-            dim=1
-        )
-        embeddings = embeddings.numpy().tolist()
-        all_embeddings.extend(embeddings)
-
-        # Clear memory
-        del outputs
-        del embeddings
-        torch.cuda.empty_cache()
-
-test_pred_probs = all_predictions
-test_true_labels = all_labels
-test_texts = [example["text"] for example in test_data]
-test_labels = [" ".join(example["labels"]) for example in test_data]
-
-# Save predictions
-with open(f"{working_dir}/test_predictions.jsonl", "w", encoding="utf-8") as f:
-    for probs, labels, text, labels_str in zip(
-        test_pred_probs, test_true_labels, test_texts, test_labels
-    ):
-        json.dump(
-            {
-                "pred_probs": probs,
-                "labels": labels,
-                "text": text,
-                "labels_str": labels_str,
-            },
-            f,
-            ensure_ascii=False,
-        )
-        f.write("\n")
-
-# Save embeddings separately (maintaining same order)
-with open(f"{working_dir}/test_embeddings.jsonl", "w", encoding="utf-8") as f:
-    for embedding, text in zip(all_embeddings, test_texts):
-        json.dump(
-            {
-                "embedding": embedding,
-                "text": text,  # Including text as reference to ensure order matching
-            },
-            f,
-            ensure_ascii=False,
-        )
-        f.write("\n")
+    print("\nProcessing dev data embeddings...")
+    dev_dataloader = DataLoader(tokenized_dev, batch_size=8, shuffle=False)
+    dev_predictions, dev_labels, dev_embeddings, dev_texts, dev_label_strings = (
+        process_dataset_embeddings(model, dev_dataloader, dev_data)
+    )
+    save_predictions_and_embeddings(
+        dev_predictions,
+        dev_labels,
+        dev_embeddings,
+        dev_texts,
+        dev_label_strings,
+        "dev",
+        working_dir,
+    )
